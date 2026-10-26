@@ -62,15 +62,20 @@
   .app{flex:1;display:flex;min-height:0}
   aside{
     width:312px;flex:0 0 312px;background:var(--paper-2);
-    border-right:1px solid var(--line);overflow-y:auto;padding:4px 0 40px;
+    border-right:1px solid var(--line);overflow-y:auto;padding:0 0 40px;
   }
   aside::-webkit-scrollbar{width:8px}
   aside::-webkit-scrollbar-thumb{background:#DED3C1;border-radius:4px}
-  .group{padding:16px 18px;border-bottom:1px solid var(--line-2)}
+  .group{padding:10px 18px 16px;border-bottom:1px solid var(--line-2)}
   .group:last-child{border-bottom:none}
   .group h3{
-    margin:0 0 12px;font-size:10px;font-weight:600;letter-spacing:.18em;
+    font-size:10px;font-weight:600;letter-spacing:.18em;
     text-transform:uppercase;color:var(--muted);
+    /* 微调默认展开后侧栏三千多像素高，让分组标题吸顶，滚动时始终知道在哪一段。
+       左右负 margin 撑满整栏宽度，否则内容会从两侧 18px 内边距里露出来；
+       上下不能再用负 margin，否则吸顶位置会比滚动容器顶部低几像素，上一组的内容从缝里透出来 */
+    position:sticky;top:0;z-index:2;background:var(--paper-2);
+    margin:0 -18px 8px;padding:6px 18px 5px;
   }
   /* template chips */
   .tpl-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
@@ -83,6 +88,41 @@
   .tpl:hover{border-color:#CFC2AC}
   .tpl.on{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent) inset}
   .tpl.on b{color:var(--accent)}
+  /* 调色预设 chips */
+  .grade-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .grade{
+    background:transparent;border:1px solid var(--line);border-radius:8px;padding:4px 3px 3px;
+    display:flex;flex-direction:column;align-items:center;gap:3px;
+  }
+  .grade canvas{width:100%;height:30px;border-radius:3px;display:block}
+  .grade b{font-size:10px;font-weight:500;color:var(--ink-2);letter-spacing:.01em}
+  .grade:hover{border-color:#CFC2AC}
+  .grade.on{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent) inset}
+  .grade.on b{color:var(--accent)}
+  .grade[data-grade="custom"]{border-style:dashed}
+  .tune-head{
+    font-size:9.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--muted);margin:14px 0 10px;padding-top:12px;border-top:1px dashed var(--line);
+  }
+  .tune-head em{font-style:normal;letter-spacing:0;text-transform:none;color:var(--accent)}
+  /* 微调默认展开，17 根滑杆摊开接近一千像素，所以区内行距单独收紧一档 */
+  details.tune{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
+  details.tune > summary{
+    display:flex;align-items:center;gap:6px;cursor:pointer;
+    list-style:none;margin:0;padding:0;border-top:none;
+  }
+  details.tune > summary::-webkit-details-marker{display:none}
+  details.tune > summary::after{
+    content:'展开';margin-left:auto;font-size:9.5px;font-weight:500;
+    letter-spacing:.08em;color:var(--muted);text-transform:none;
+  }
+  details.tune[open] > summary{margin-bottom:10px}
+  details.tune[open] > summary::after{content:'收起'}
+  details.tune > summary:hover::after{color:var(--accent)}
+  details.tune .row{margin-bottom:5px}
+  details.tune input[type=range]{margin:1px 0 7px}
+  .tune-head.sub{margin-top:4px;border-top:none;padding-top:0}
+  details.tune > .tune-head.sub:not(:first-of-type){margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
   /* controls */
   .row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
   .row:last-child{margin-bottom:0}
@@ -363,8 +403,79 @@
     </div>
 
     <div class="group">
+      <h3>调色</h3>
+      <div class="grade-grid" id="gradeGrid"></div>
+      <div class="row" style="margin:12px 0 10px"><label>强度</label><span class="val" id="gradeVal">100%</span></div>
+      <input type="range" id="gradeAmount" min="0" max="100" step="1" value="100">
+
+      <div class="hint">选预设会把它的数值填进下面的滑杆，再动任意一根就自动切到「自定义」。
+        强度是整体缩放，滑杆是逐项设定，两者相乘生效。只作用于照片本身，卡纸底色和文字不受影响。</div>
+
+      <details class="tune" id="tuneBox" open>
+        <summary class="tune-head">微调 <em id="tuneState"></em></summary>
+
+        <div class="tune-head sub">影调</div>
+        <div class="row"><label>曝光</label><span class="val" id="gExpVal">0</span></div>
+        <input type="range" id="gExp" min="-100" max="100" step="1" value="0">
+        <div class="row"><label>亮度</label><span class="val" id="gBrightVal">100%</span></div>
+        <input type="range" id="gBright" min="50" max="150" step="1" value="100">
+        <div class="row"><label>对比</label><span class="val" id="gContrastVal">100%</span></div>
+        <input type="range" id="gContrast" min="50" max="150" step="1" value="100">
+        <div class="row"><label>高光</label><span class="val" id="gHighVal">0</span></div>
+        <input type="range" id="gHigh" min="-100" max="100" step="1" value="0">
+        <div class="row"><label>阴影</label><span class="val" id="gShadowVal">0</span></div>
+        <input type="range" id="gShadow" min="-100" max="100" step="1" value="0">
+
+        <div class="tune-head sub">色彩</div>
+        <div class="row"><label>饱和</label><span class="val" id="gSatVal">100%</span></div>
+        <input type="range" id="gSat" min="0" max="200" step="1" value="100">
+        <div class="row"><label>色相</label><span class="val" id="gHueVal">0°</span></div>
+        <input type="range" id="gHue" min="-45" max="45" step="1" value="0">
+        <div class="row"><label>去色</label><span class="val" id="gGrayVal">0%</span></div>
+        <input type="range" id="gGray" min="0" max="100" step="1" value="0">
+        <div class="row"><label>棕褐</label><span class="val" id="gSepiaVal">0%</span></div>
+        <input type="range" id="gSepia" min="0" max="100" step="1" value="0">
+        <div class="row"><label>色温</label><span class="val" id="gTempVal">0</span></div>
+        <input type="range" id="gTemp" min="-100" max="100" step="1" value="0">
+        <div class="row"><label>色调</label><span class="val" id="gTintVal">0</span></div>
+        <input type="range" id="gTint" min="-100" max="100" step="1" value="0">
+
+        <div class="tune-head sub">质感</div>
+        <div class="row"><label>清晰度</label><span class="val" id="gClarVal">0%</span></div>
+        <input type="range" id="gClar" min="0" max="100" step="1" value="0">
+        <div class="row"><label>锐度</label><span class="val" id="gSharpVal">0%</span></div>
+        <input type="range" id="gSharp" min="0" max="100" step="1" value="0">
+        <div class="row"><label>光晕</label><span class="val" id="gBloomVal">0%</span></div>
+        <input type="range" id="gBloom" min="0" max="100" step="1" value="0">
+        <div class="row"><label>褪色</label><span class="val" id="gFadeVal">0%</span></div>
+        <input type="range" id="gFade" min="0" max="100" step="1" value="0">
+        <div class="row"><label>暗角</label><span class="val" id="gVigVal">0%</span></div>
+        <input type="range" id="gVig" min="0" max="100" step="1" value="0">
+        <div class="row"><label>颗粒</label><span class="val" id="gGrainVal">0%</span></div>
+        <input type="range" id="gGrain" min="0" max="100" step="1" value="0">
+
+        <div class="hint"><b>曝光</b>整体乘除，冲高光；<b>亮度</b>走中间调，更柔和；<b>高光 / 阴影</b>单独压提两端。
+          <b>色温</b>负数偏冷、正数偏暖；<b>色调</b>负数偏青绿、正数偏洋红；<b>褪色</b>抬起黑位。
+          <b>清晰度</b>大半径局部对比，<b>锐度</b>小半径边缘强化，<b>光晕</b>高光溢出。</div>
+      </details>
+    </div>
+
+    <div class="group">
       <h3>版式</h3>
       <div class="tpl-grid" id="tplGrid"></div>
+    </div>
+
+    <div class="group">
+      <h3>版式参数</h3>
+      <div class="row"><label>边距</label><span class="val" id="padVal">5.5%</span></div>
+      <input type="range" id="padding" min="1" max="14" step="0.5" value="5.5">
+      <div class="row"><label>字号</label><span class="val" id="fsVal">2.2%</span></div>
+      <input type="range" id="fontScale" min="1" max="4" step="0.1" value="2.2">
+      <div class="row"><label>圆角</label><span class="val" id="radVal">0.4%</span></div>
+      <input type="range" id="radius" min="0" max="3" step="0.1" value="0.4">
+      <div class="row">
+        <label class="check"><input type="checkbox" id="shadow" checked>投影</label>
+      </div>
     </div>
 
     <div class="group" id="blurGroup" style="display:none">
@@ -440,20 +551,6 @@
         </select>
       </div>
       <div class="hint">要绝对无损请选 PNG。「原始尺寸」按照片本身的像素导出，不做任何缩放。</div>
-    </div>
-
-    <div class="group">
-      <h3>版式参数</h3>
-      <div class="row"><label>边距</label><span class="val" id="padVal">5.5%</span></div>
-      <input type="range" id="padding" min="1" max="14" step="0.5" value="5.5">
-      <div class="row"><label>字号</label><span class="val" id="fsVal">2.2%</span></div>
-      <input type="range" id="fontScale" min="1" max="4" step="0.1" value="2.2">
-      <div class="row"><label>圆角</label><span class="val" id="radVal">0.4%</span></div>
-      <input type="range" id="radius" min="0" max="3" step="0.1" value="0.4">
-      <div class="row">
-        <label class="check"><input type="checkbox" id="shadow" checked>投影</label>
-        <label class="check"><input type="checkbox" id="grain">颗粒</label>
-      </div>
     </div>
 
     <div class="group">
@@ -919,6 +1016,158 @@ const TEMPLATES = {
               radius:0.017, blurAmount:0.12, blurDim:1.0, blurSat:0.95}
 };
 
+/* ==================== 调色预设 ====================
+   预设 = 一组参数，按「强度」在原图与目标之间线性插值。
+   参数按「怎么画」分成四类，各走各的通道：
+     · CSS filter（对比/饱和/色相/去色/棕褐）  → ctx.filter，GPU 处理
+     · 曝光                                   → 也是 ctx.filter，但固定排在最前面
+     · 叠色（亮度/高光/阴影/色温/色调/褪色/暗角）→ 照片画完盖一层带混合模式的颜色
+     · 质感（清晰度/锐度/光晕/颗粒）            → 模糊副本叠加 / 噪点平铺
+   全部只改照片像素，卡纸底色 / 文字 / 点缀色不受影响。 */
+const GRADES = {
+  none:      { name:'原图', f:{} },
+
+  /* —— 按拍摄场景 —— */
+  // 人像：压一点对比、抬阴影、收高光让皮肤通透，锐度压到最低免得放毛孔
+  portrait:  { name:'人像', f:{ contrast:0.95, brightness:1.05, saturate:0.96, highlights:-12, shadows:14, temp:7, bloom:8, clarity:5, sharpness:4, vignette:8 } },
+  // 风光：靠清晰度撑通透，蓝绿更浓，整体微冷
+  landscape: { name:'风光', f:{ contrast:1.12, saturate:1.18, clarity:30, sharpness:16, highlights:-12, shadows:8, temp:-8, vignette:12 } },
+  // 夜景：狠压高光保住灯，抬阴影看暗部，冷调 + 重暗角，带一点噪点更像高感
+  // 对比只能给 1.02 —— 对比一上去就把「压高光 + 抬阴影」全抵消，实测亮部纹丝不动、暗部反而更黑
+  night:     { name:'夜景', f:{ contrast:1.02, saturate:1.10, highlights:-34, shadows:20, temp:-16, tint:4, clarity:16, sharpness:20, vignette:26, grain:10 } },
+  // 黄昏：强暖 + 泛光，让低角度逆光散开
+  golden:    { name:'黄昏', f:{ brightness:1.05, contrast:1.02, saturate:1.12, highlights:-14, shadows:10, temp:26, tint:6, bloom:18, vignette:10 } },
+  // 清新：整体提亮、降对比、轻褪色，空气感
+  fresh:     { name:'清新', f:{ brightness:1.08, contrast:0.92, saturate:1.06, temp:-7, highlights:-6, shadows:10, fade:6, bloom:10, clarity:8 } },
+  // 电影：青橙分离（冷色温 + 洋红色调），抬黑位压暗角
+  // 褪色给到 14，不然对比 1.08 会把「抬黑位」吃干净，暗部反而比原图更黑
+  cinema:    { name:'电影', f:{ contrast:1.08, saturate:0.96, highlights:-14, shadows:12, temp:-10, tint:9, fade:14, vignette:18, grain:8 } },
+  // 暗调：降曝光、拉对比、压阴影，只留一个亮点
+  moody:     { name:'暗调', f:{ exposure:-20, contrast:1.18, saturate:0.92, highlights:-10, shadows:-14, temp:-6, clarity:14, vignette:32, grain:12 } },
+
+  /* —— 按画面风格 —— */
+  film:      { name:'胶片', f:{ contrast:0.94, saturate:0.86, sepia:0.14, brightness:1.04, temp:14, fade:12, vignette:20, grain:26, clarity:12 } },
+  retro:     { name:'复古', f:{ sepia:0.42, saturate:1.06, contrast:0.90, brightness:1.03, temp:20, fade:6, vignette:28, grain:20 } },
+  bw:        { name:'黑白', f:{ grayscale:1, contrast:1.16, brightness:1.02, vignette:16, clarity:18, grain:24 } },
+  japan:     { name:'日系', f:{ brightness:1.10, contrast:0.90, saturate:0.90, temp:-8, fade:10, bloom:14 } },
+  glow:      { name:'柔光', f:{ contrast:0.84, brightness:1.10, saturate:0.95, fade:8, bloom:26, shadows:12 } },
+  vivid:     { name:'浓郁', f:{ saturate:1.36, contrast:1.14, temp:6, vignette:10, clarity:22, sharpness:14 } },
+  cool:      { name:'冷调', f:{ saturate:1.05, contrast:1.08, hueRotate:-12, temp:-22, fade:4, clarity:10 } },
+};
+
+/** 各参数「不改变画面」时的取值，插值基准 */
+const GRADE_IDENTITY = {
+  exposure:0, brightness:1, contrast:1, highlights:0, shadows:0,
+  saturate:1, hueRotate:0, grayscale:0, sepia:0, temp:0, tint:0,
+  clarity:0, sharpness:0, bloom:0, fade:0, vignette:0, grain:0,
+  invert:0,
+};
+
+/** 能直接写成 CSS filter 的参数；叠色和质感参数绝不能混进来，否则整串 filter 失效 */
+const CSS_FILTER_KEYS = {
+  contrast:1, saturate:1, grayscale:1, sepia:1, hueRotate:1, invert:1,
+};
+
+/** 预设 + 强度 → CSS filter 字符串；返回空串表示这一帧不做滤镜 */
+function buildGradeFilter(f, amount){
+  if (!f) return '';
+  const parts = [];
+  // 曝光排在最前面：先整体缩放，后面的对比 / 饱和作用在已经缩放过的画面上
+  if (f.exposure){
+    const ev = f.exposure * amount;
+    if (Math.abs(ev) > 1e-4) parts.push('brightness(' + Math.pow(2, ev / 100).toFixed(3) + ')');
+  }
+  for (const k of Object.keys(f)){
+    if (!CSS_FILTER_KEYS[k]) continue;              // 非 filter 参数不能写进字符串，否则整串失效
+    const id = GRADE_IDENTITY[k] === undefined ? 0 : GRADE_IDENTITY[k];
+    const v = id + (f[k] - id) * amount;
+    if (Math.abs(v - id) < 1e-4) continue;          // 和原图没差别就别加，省一次滤镜开销
+    parts.push(k === 'hueRotate'
+      ? 'hue-rotate(' + v.toFixed(1) + 'deg)'
+      : k + '(' + v.toFixed(3) + ')');
+  }
+  return parts.join(' ');
+}
+
+/** 微调滑杆的取值范围，同时也是导入参数时接受的合法区间 */
+const GRADE_FIELDS = {
+  /* 影调 */
+  exposure:  [-100, 100],
+  brightness:[0.5, 1.5],
+  contrast:  [0.5, 1.5],
+  highlights:[-100, 100],
+  shadows:   [-100, 100],
+  /* 色彩 */
+  saturate:  [0, 2],
+  hueRotate: [-45, 45],
+  grayscale: [0, 1],
+  sepia:     [0, 1],
+  temp:      [-100, 100],
+  tint:      [-100, 100],
+  /* 质感 */
+  clarity:   [0, 100],
+  sharpness: [0, 100],
+  bloom:     [0, 100],
+  fade:      [0, 100],
+  vignette:  [0, 100],
+  grain:     [0, 100],
+};
+
+/** 一组恒等值 = 「原图」，也是自定义参数的起点 */
+function identityGrade(){
+  const o = {};
+  for (const k of Object.keys(GRADE_FIELDS)) o[k] = GRADE_IDENTITY[k];
+  return o;
+}
+
+/**
+ * 当前设置 → 这一帧要用的调色状态。
+ * 四个通道都为「空」时表示这一帧就是原图，零开销。
+ *   filter  给 ctx.filter
+ *   overlay 给 paintGradeOverlay
+ *   detail  给 paintDetail
+ *   grain   给 paintGrain / paintGrainFeathered（0–100）
+ */
+function gradeStateOf(s){
+  const EMPTY = { filter:'', overlay:null, detail:null, grain:0 };
+  const amt = s.gradeAmount === undefined ? 1 : s.gradeAmount;
+  if (!(amt > 0)) return EMPTY;
+  // custom 用滑杆里的值，其余用预设自带的参数
+  const f = s.grade === 'custom' ? s.gradeCustom : (GRADES[s.grade] || {}).f;
+  if (!f) return EMPTY;
+
+  const n = k => (typeof f[k] === 'number' && isFinite(f[k]) ? f[k] : 0) * amt;
+
+  const ov = {
+    // 亮度的恒等值是 1，不是 0，单独算
+    brightness: 1 + ((typeof f.brightness === 'number' && isFinite(f.brightness) ? f.brightness : 1) - 1) * amt,
+    highlights: n('highlights'),
+    shadows:    n('shadows'),
+    temp:       n('temp'),
+    tint:       n('tint'),
+    fade:       n('fade'),
+    vignette:   n('vignette'),
+  };
+  const dt = { clarity: n('clarity'), sharpness: n('sharpness'), bloom: n('bloom') };
+
+  const hasOverlay = Math.abs(ov.brightness - 1) > 1e-4
+    || ov.highlights || ov.shadows || ov.temp || ov.tint || ov.fade || ov.vignette;
+  const hasDetail = dt.clarity || dt.sharpness || dt.bloom;
+
+  return {
+    filter: buildGradeFilter(f, amt),
+    overlay: hasOverlay ? ov : null,
+    detail: hasDetail ? dt : null,
+    grain: n('grain'),
+  };
+}
+
+/* 当前这一帧要用的调色状态，由 renderFrame 在每次渲染前写入 */
+let GRADE_FILTER = '';
+let GRADE_OVERLAY = null;
+let GRADE_DETAIL = null;
+let GRADE_GRAIN = 0;
+
 function addRoundPath(ctx, x, y, w, h, r){
   r = Math.max(0, Math.min(r, w / 2, h / 2));
   if (r <= 0.01){ ctx.rect(x, y, w, h); return; }
@@ -934,13 +1183,170 @@ function roundPath(ctx, x, y, w, h, r){
   addRoundPath(ctx, x, y, w, h, r);
 }
 
-function drawCover(ctx, img, x, y, w, h){
+/** 在指定矩形上叠一层带混合模式的颜色，用于色温 / 色调 / 褪色 */
+function tintRect(ctx, x, y, w, h, rgb, alpha, mode){
+  if (!(alpha > 0)) return;
+  ctx.save();
+  ctx.globalCompositeOperation = mode;
+  ctx.fillStyle = 'rgba(' + rgb + ',' + alpha.toFixed(3) + ')';
+  ctx.fillRect(x, y, w, h);
+  ctx.restore();
+}
+
+/**
+ * 暗角：按矩形做椭圆径向渐变，四角最深、中心完全透明。
+ * 单独拆出来是因为柔焦 / 光影是「虚化底 + 主体卡」两层，
+ * 如果每层各画一次，主体卡上会多出一圈假暗角；那种情况改成整张画布只补一次。
+ */
+function paintVignette(ctx, x, y, w, h, v){
+  if (!(v > 0) || w <= 0 || h <= 0) return;
+  const a = Math.max(0, Math.min(1, v / 100)) * 0.62;
+  ctx.save();
+  ctx.translate(x + w / 2, y + h / 2);
+  ctx.scale(Math.max(1, w / 2), Math.max(1, h / 2));   // 归一化到 -1..1，横竖比例自动跟着矩形走
+  const g = ctx.createRadialGradient(0, 0, 0.42, 0, 0, 1);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.55, 'rgba(0,0,0,' + (a * 0.28).toFixed(3) + ')');
+  g.addColorStop(1, 'rgba(0,0,0,' + a.toFixed(3) + ')');
+  ctx.fillStyle = g;
+  ctx.fillRect(-1, -1, 2, 2);
+  ctx.restore();
+}
+
+/**
+ * 叠色类调色：亮度 / 高光 / 阴影 / 色温 / 色调 / 褪色 / 暗角。
+ * CSS filter 做不了这几项，只能等照片画上去以后在同一个矩形里再盖一层。
+ * 调用点就在 drawCover 里，所以叠色永远和照片本身严丝合缝，不会盖到卡纸上。
+ * noVignette 供分图层绘制的版式使用，暗角交给调用方在整张画布上补。
+ */
+function paintGradeOverlay(ctx, x, y, w, h, noVignette){
+  const o = GRADE_OVERLAY;
+  if (!o || w <= 0 || h <= 0) return;
+  const hasBright = Math.abs(o.brightness - 1) > 1e-4;
+  if (!(hasBright || o.highlights || o.shadows || o.temp || o.tint || o.fade
+        || (o.vignette && !noVignette))) return;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+
+  // 亮度：soft-light 推中间调，比直接乘 brightness 温和，暗部不会死、高光不会冲
+  if (hasBright){
+    const d = Math.max(-1, Math.min(1, o.brightness - 1));
+    tintRect(ctx, x, y, w, h,
+      d > 0 ? '255,255,255' : '0,0,0',
+      Math.abs(d) * 0.70, 'soft-light');
+  }
+  // 高光：正数提亮（overlay 浅灰），负数压暗（multiply 浅灰，按比例吃高光最多）
+  if (o.highlights){
+    const v = Math.max(-1, Math.min(1, o.highlights / 100));
+    if (v > 0) tintRect(ctx, x, y, w, h, '210,210,210', v * 0.34, 'overlay');
+    else       tintRect(ctx, x, y, w, h, '205,205,205', -v * 0.40, 'multiply');
+  }
+  // 阴影：正数提亮（screen 深灰，黑位抬得最多），负数压暗（overlay 黑）
+  if (o.shadows){
+    const v = Math.max(-1, Math.min(1, o.shadows / 100));
+    if (v > 0) tintRect(ctx, x, y, w, h, '90,90,90', v * 0.34, 'screen');
+    else       tintRect(ctx, x, y, w, h, '0,0,0', -v * 0.30, 'overlay');
+  }
+  // 色温：正数偏暖（橙），负数偏冷（蓝）
+  if (o.temp){
+    const t = Math.max(-1, Math.min(1, o.temp / 100));
+    tintRect(ctx, x, y, w, h,
+      t > 0 ? '255,146,64' : '72,136,255',
+      Math.abs(t) * 0.30, 'soft-light');
+  }
+  // 色调：正数偏洋红，负数偏青绿
+  if (o.tint){
+    const n = Math.max(-1, Math.min(1, o.tint / 100));
+    tintRect(ctx, x, y, w, h,
+      n > 0 ? '255,86,164' : '70,214,158',
+      Math.abs(n) * 0.24, 'soft-light');
+  }
+  // 褪色：用 screen 抬黑位，画面整体发灰、暗部不再死黑，是老照片的典型特征
+  if (o.fade){
+    const a = Math.max(0, Math.min(1, o.fade / 100));
+    tintRect(ctx, x, y, w, h, '150,138,124', a * 0.22, 'screen');
+  }
+  // 暗角
+  if (o.vignette && !noVignette) paintVignette(ctx, x, y, w, h, o.vignette);
+
+  ctx.restore();
+}
+
+/**
+ * 质感类调色：清晰度 / 锐度 / 光晕。
+ *
+ * Canvas 2D 没有卷积，做不了真正的 USM，这里用「模糊副本叠加」近似：
+ *   · overlay 叠一层模糊副本 → 边缘被拉开 = 局部对比。半径小是锐度，半径大是清晰度，
+ *     这正是修图软件里两者的区别。代价是平坦区域也会吃到一点 S 形对比（见 README）。
+ *   · 光晕要先"筛"出高光再叠，否则 screen 一层整图会把暗部也一起提亮。
+ *     没有逐像素阈值，就用 contrast() 当软阈值：暗部被压到 0，screen 时自然不贡献，
+ *     只有高光被 blur 抹开溢到周围，才是真正的高光溢出。
+ * 都只在照片矩形内生效，默认值为 0 时一次都不画。
+ */
+function paintDetail(ctx, img, sx, sy, sw, sh, x, y, w, h){
+  const d = GRADE_DETAIL;
+  if (!d || w <= 0 || h <= 0) return;
+  const short = Math.min(w, h);
+  const gf = GRADE_FILTER ? GRADE_FILTER + ' ' : '';
+
+  const passes = [];
+  if (d.clarity > 0){
+    passes.push({ pre: '', blur: Math.max(2, short * 0.009), alpha: d.clarity / 100 * 0.40, mode: 'overlay' });
+  }
+  if (d.sharpness > 0){
+    passes.push({ pre: '', blur: Math.max(0.8, short * 0.0022), alpha: d.sharpness / 100 * 0.34, mode: 'overlay' });
+  }
+  if (d.bloom > 0){
+    // contrast 先把暗部压没，再 blur 把剩下的高光抹开，最后 screen 叠回去
+    passes.push({ pre: 'contrast(1.7) ', blur: Math.max(4, short * 0.045), alpha: d.bloom / 100 * 0.68, mode: 'screen' });
+  }
+  if (!passes.length) return;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+
+  for (const p of passes){
+    ctx.globalCompositeOperation = p.mode;
+    ctx.globalAlpha = Math.min(1, p.alpha);
+    // 副本也带上调色滤镜，否则叠上去的颜色和已经调过色的照片对不上
+    ctx.filter = SUPPORTS_FILTER
+      ? gf + p.pre + 'blur(' + p.blur.toFixed(2) + 'px)'
+      : (p.pre ? p.pre.trim() : 'none');
+    ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.filter = 'none';
+  ctx.restore();
+}
+
+function drawCover(ctx, img, x, y, w, h, noVignette, noDetail){
   const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
   const ir = iw / ih, br = w / h;
   let sw, sh, sx, sy;
   if (ir > br){ sh = ih; sw = ih * br; sx = (iw - sw) / 2; sy = 0; }
   else { sw = iw; sh = iw / br; sx = 0; sy = (ih - sh) / 2; }
+
+  // 调色统一在这里接，所有照片绘制（主体、虚化底、柔焦蒙版）都走这条路，
+  // 接一次就够，也不会重复叠加。虚化底图本来就带着 blur/brightness，拼在后面。
+  const applyGrade = !!GRADE_FILTER && SUPPORTS_FILTER;
+  const prev = applyGrade ? ctx.filter : '';
+  if (applyGrade){
+    ctx.filter = (prev && prev !== 'none') ? prev + ' ' + GRADE_FILTER : GRADE_FILTER;
+  }
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+  if (applyGrade) ctx.filter = prev;
+
+  // 质感要在照片本身画完之后叠，顺序：照片 → 质感 → 叠色
+  if (!noDetail) paintDetail(ctx, img, sx, sy, sw, sh, x, y, w, h);
+  // 叠色类参数放在最后，位置和照片矩形完全一致
+  paintGradeOverlay(ctx, x, y, w, h, noVignette);
 }
 
 let _noise = null;
@@ -967,15 +1373,17 @@ function noisePattern(ctx, grainPx){
   return pat;
 }
 
-/** 颗粒开关：只有「关 / 主体」两态。旧预设里的 all / edge 统一收敛到主体颗粒 */
-function grainModeOf(s){
-  if (s.grainMode === 'subject' || s.grainMode === 'all' || s.grainMode === 'edge') return 'subject';
-  if (s.grainMode === 'off') return 'off';
-  return s.grain ? 'subject' : 'off';        // 更早的布尔字段
+/** 颗粒强度 0–100 → 叠加强度。50% 差不多等于旧版固定开关的观感 */
+function grainAlpha(amount){
+  const a = Math.max(0, Math.min(100, amount || 0)) / 100;
+  return a * 0.85;
 }
 
 /** 柔焦专用：颗粒跟着羽化边缘走，避免在主体边界切出硬边 */
-function paintGrainFeathered(ctx, W, H, short, img, dw, dh, featherPx, radius, dx, dy){
+function paintGrainFeathered(ctx, W, H, short, img, dw, dh, featherPx, radius, dx, dy, amount){
+  const alpha = grainAlpha(amount);
+  if (!(alpha > 0)) return;
+
   const pad = Math.ceil(Math.min(short * 0.05, 140));
   const mask = makeFeathered(img, dw, dh, featherPx, radius, pad);
 
@@ -991,26 +1399,28 @@ function paintGrainFeathered(ctx, W, H, short, img, dw, dh, featherPx, radius, d
 
   ctx.save();
   ctx.globalCompositeOperation = 'overlay';
-  ctx.globalAlpha = 0.42;
+  ctx.globalAlpha = alpha;
   ctx.drawImage(layer, 0, 0);
   ctx.restore();
 }
 
 /**
- * 颗粒绘制：只加在照片主体上。
+ * 颗粒绘制：只加在照片主体上，强度由「调色 → 质感 → 颗粒」控制。
  * 早期还有「全图 / 主体以外」两种模式，实际观感都接近「整张照片糊一层噪点」
  * （柔焦的底图本身就是虚化的原图），已移除。
- * @param rect 主体区域 {x,y,w,h,r}
+ * @param rect   主体区域 {x,y,w,h,r}
+ * @param amount 0–100
  */
-function paintGrain(ctx, W, H, short, rect){
-  if (!rect) return;
+function paintGrain(ctx, W, H, short, rect, amount){
+  const alpha = grainAlpha(amount);
+  if (!rect || !(alpha > 0)) return;
 
   ctx.save();
   ctx.beginPath();
   addRoundPath(ctx, rect.x, rect.y, rect.w, rect.h, rect.r || 0);
   ctx.clip();
   ctx.globalCompositeOperation = 'overlay';
-  ctx.globalAlpha = 0.42;
+  ctx.globalAlpha = alpha;
   ctx.fillStyle = noisePattern(ctx, Math.max(1, short * 0.0013));
   ctx.fillRect(0, 0, W, H);
   ctx.restore();
@@ -1053,6 +1463,13 @@ function fitTracked(ctx, text, maxW, size, family, weight, trackRatio){
 
 /** 主渲染：返回 canvas */
 function renderFrame(photo, s, longEdge){
+  // 这一帧的调色参数先定下来，后面所有 drawCover 都读它
+  const gs = gradeStateOf(s);
+  GRADE_FILTER = gs.filter;
+  GRADE_OVERLAY = gs.overlay;
+  GRADE_DETAIL = gs.detail;
+  GRADE_GRAIN = gs.grain;
+
   const img = photo.img;
   const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
   const aspect = s.ratio === 'orig' ? iw / ih : parseFloat(s.ratio);
@@ -1239,7 +1656,7 @@ function renderFrame(photo, s, longEdge){
     ctx.fillRect(capX - fs * 0.85, capTop + fs * 0.18, Math.max(2, fs * 0.15), barH);
   }
 
-  if (grainModeOf(s) !== 'off') paintGrain(ctx, W, H, short, {x: px, y: py, w: pw, h: ph, r: radius});
+  if (GRADE_GRAIN > 0) paintGrain(ctx, W, H, short, {x: px, y: py, w: pw, h: ph, r: radius}, GRADE_GRAIN);
 
   return cv;
 }
@@ -1266,7 +1683,8 @@ function paintBgLayer(ctx, img, W, H, s, blurPx, blurMul){
   ctx.save();
   if (SUPPORTS_FILTER){
     ctx.filter = 'blur(' + b.toFixed(1) + 'px) brightness(' + dim.toFixed(2) + ') saturate(' + sat.toFixed(2) + ')';
-    drawCover(ctx, img, dx, dy, dw, dh);
+    // 底图已经刻意虚化了，暗角和清晰度都别在它上面画
+    drawCover(ctx, img, dx, dy, dw, dh, true, true);
     ctx.filter = 'none';
   } else {
     // 兜底：缩到极小再插值放大，模拟高斯模糊
@@ -1274,7 +1692,7 @@ function paintBgLayer(ctx, img, W, H, s, blurPx, blurMul){
     const tw = Math.max(8, Math.round(dw * kk)), th = Math.max(8, Math.round(dh * kk));
     const tmp = document.createElement('canvas');
     tmp.width = tw; tmp.height = th;
-    drawCover(tmp.getContext('2d'), img, 0, 0, tw, th);
+    drawCover(tmp.getContext('2d'), img, 0, 0, tw, th, true, true);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(tmp, dx, dy, dw, dh);
@@ -1297,7 +1715,7 @@ function makeFeathered(img, w, h, featherPx, radius, pad){
   t.save();
   t.translate(p, p);
   if (radius > 0.5){ roundPath(t, 0, 0, cw, ch, radius); t.clip(); }
-  drawCover(t, img, 0, 0, cw, ch);
+  drawCover(t, img, 0, 0, cw, ch, true);
   t.restore();
 
   const f = Math.min(featherPx, Math.min(cw, ch) * 0.45);
@@ -1407,6 +1825,9 @@ function renderSoft(photo, s, W, H){
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, W, H);
 
+  // 用户的暗角叠在版式自带暗角之上；虚化底和主体卡都跳过各自的暗角，整张只补这一次
+  if (GRADE_OVERLAY) paintVignette(ctx, 0, 0, W, H, GRADE_OVERLAY.vignette);
+
   // 文字直接压在虚化底上，靠投影保证可读性（柔焦不加框）
   const textColor = s.fg || '#FFFFFF';
   const textTop = H - pad - blockH;
@@ -1428,7 +1849,7 @@ function renderSoft(photo, s, W, H){
   ctx.shadowBlur = 0;
   ctx.shadowColor = 'transparent';
 
-  if (grainModeOf(s) !== 'off') paintGrainFeathered(ctx, W, H, short, img, dw, dh, featherPx, radius, dx, dy);
+  if (GRADE_GRAIN > 0) paintGrainFeathered(ctx, W, H, short, img, dw, dh, featherPx, radius, dx, dy, GRADE_GRAIN);
 
   return cv;
 }
@@ -1567,15 +1988,18 @@ function renderWatermark(photo, s, W, H){
   ctx.save();
   roundPath(ctx, px, py, pw, ph, radius);
   ctx.clip();
-  drawCover(ctx, img, px, py, pw, ph);
+  drawCover(ctx, img, px, py, pw, ph, true);
   ctx.restore();
+
+  // 暗角整张补一次：底图和照片卡是两层，各画一次会让照片卡上多出一圈假暗角
+  if (GRADE_OVERLAY) paintVignette(ctx, 0, 0, W, H, GRADE_OVERLAY.vignette);
 
   // 底部文字：整块在底栏内垂直居中
   const photoBottom = py + ph;
   const blockTop = photoBottom + (band - m.blockH) / 2 - band * 0.02;
   drawCaption(ctx, m, s, W, blockTop, W - pad * 2);
 
-  if (grainModeOf(s) !== 'off') paintGrain(ctx, W, H, short, {x: px, y: py, w: pw, h: ph, r: radius});
+  if (GRADE_GRAIN > 0) paintGrain(ctx, W, H, short, {x: px, y: py, w: pw, h: ph, r: radius}, GRADE_GRAIN);
 
   return cv;
 }
@@ -1597,13 +2021,16 @@ const state = {
     fontScale: 0.022,
     radius: 0.004,
     shadow: true,
-    grainMode: 'off',
     bg: '#F3EDE2',
     fg: '#1B1714',
     accent: '#B4622D',
     title: '',
     author: '',
     infoTpl: '{params}|{camera}',
+    /* 调色 */
+    grade: 'none',
+    gradeAmount: 1,
+    gradeCustom: identityGrade(),
     /* 柔焦 · 边缘模糊 */
     blurAmount: 0.07,
     blurScale: 1.25,
@@ -1710,7 +2137,155 @@ function buildChips(){
   });
 }
 
+/* ---------- 调色预设 chips ---------- */
+/**
+ * 画预设小样：一块彩色渐变 + 一个肤色块 + 一个灰块，
+ * 套上滤镜后能同时看出色偏、饱和度和对比的变化。
+ */
+function paintGradeChip(cv, key){
+  const W = cv.width = 120, H = cv.height = 60;
+  const c = cv.getContext('2d');
+
+  // 「自定义」不是预设，画一组滑杆示意，避免让人以为它是个滤镜
+  if (key === 'custom'){
+    c.fillStyle = '#F1EFE8'; c.fillRect(0, 0, W, H);
+    c.strokeStyle = '#CFC7B8'; c.lineWidth = 1.5;
+    [0.3, 0.5, 0.7].forEach((ry, i) => {
+      const y = H * ry;
+      c.beginPath(); c.moveTo(W * 0.16, y); c.lineTo(W * 0.84, y); c.stroke();
+      c.beginPath(); c.arc(W * (0.34 + i * 0.16), y, 3.6, 0, Math.PI * 2);
+      c.fillStyle = '#8C8378'; c.fill();
+    });
+    return;
+  }
+
+  const g = c.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, '#E8B24A');
+  g.addColorStop(0.5, '#C4614A');
+  g.addColorStop(1, '#3A4E63');
+  c.fillStyle = g;
+  c.fillRect(0, 0, W, H);
+  c.fillStyle = '#D9A882'; c.fillRect(W * 0.12, H * 0.28, W * 0.26, H * 0.44);
+  c.fillStyle = '#7A8B99'; c.fillRect(W * 0.62, H * 0.28, W * 0.26, H * 0.44);
+
+  const f = buildGradeFilter(GRADES[key].f, 1);
+  if (f && SUPPORTS_FILTER){
+    // 画布不能带滤镜自己画自己，先拷一份再套
+    const tmp = document.createElement('canvas');
+    tmp.width = W; tmp.height = H;
+    tmp.getContext('2d').drawImage(cv, 0, 0);
+    c.clearRect(0, 0, W, H);
+    c.filter = f;
+    c.drawImage(tmp, 0, 0);
+    c.filter = 'none';
+  }
+
+  // 叠色类参数也要画进小样，否则「胶片」的暖调、「黑白」的暗角在小样上根本看不出来
+  const p = GRADES[key].f || {};
+  const ov = {
+    brightness: p.brightness === undefined ? 1 : p.brightness,
+    highlights: p.highlights || 0,
+    shadows:    p.shadows || 0,
+    temp:       p.temp || 0,
+    tint:       p.tint || 0,
+    fade:       p.fade || 0,
+    vignette:   p.vignette || 0,
+  };
+  const keep = GRADE_OVERLAY;
+  GRADE_OVERLAY = (Math.abs(ov.brightness - 1) > 1e-4 || ov.highlights || ov.shadows
+                   || ov.temp || ov.tint || ov.fade || ov.vignette) ? ov : null;
+  paintGradeOverlay(c, 0, 0, W, H);
+  GRADE_OVERLAY = keep;
+}
+
+function buildGradeChips(){
+  const wrap = $('gradeGrid');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  Object.keys(GRADES).concat('custom').forEach(k => {
+    const b = document.createElement('button');
+    b.className = 'grade' + (state.settings.grade === k ? ' on' : '');
+    b.dataset.grade = k;
+    const cv = document.createElement('canvas');
+    paintGradeChip(cv, k);
+    const label = document.createElement('b');
+    label.textContent = k === 'custom' ? '自定义' : GRADES[k].name;
+    b.appendChild(cv); b.appendChild(label);
+    b.onclick = () => selectGrade(k);
+    wrap.appendChild(b);
+  });
+}
+
+/** 选中预设时，把它的数值灌进自定义参数，滑杆跟着跳过去 */
+function syncGradeCustomFrom(key){
+  const f = (GRADES[key] || {}).f || {};
+  const c = state.settings.gradeCustom;
+  for (const p of Object.keys(GRADE_FIELDS)){
+    c[p] = f[p] === undefined ? GRADE_IDENTITY[p] : f[p];
+  }
+}
+
+function selectGrade(key){
+  state.settings.grade = key;
+  if (key !== 'custom') syncGradeCustomFrom(key);
+  syncUI();
+  scheduleRender();
+}
+
 /* ---------- UI 同步 ---------- */
+
+/**
+ * 微调滑杆的对照表：[元素前缀, 状态字段, 显示换算, 单位, 是否带正负号]
+ * 同步数值和绑定事件都读这张表，加参数只要在这里加一行。
+ */
+const GRADE_UI = [
+  ['gExp',     'exposure',   1,   '',  true ],
+  ['gBright',  'brightness', 100, '%', false],
+  ['gContrast','contrast',   100, '%', false],
+  ['gHigh',    'highlights', 1,   '',  true ],
+  ['gShadow',  'shadows',    1,   '',  true ],
+  ['gSat',     'saturate',   100, '%', false],
+  ['gHue',     'hueRotate',  1,   '°', false],
+  ['gGray',    'grayscale',  100, '%', false],
+  ['gSepia',   'sepia',      100, '%', false],
+  ['gTemp',    'temp',       1,   '',  true ],
+  ['gTint',    'tint',       1,   '',  true ],
+  ['gClar',    'clarity',    1,   '%', false],
+  ['gSharp',   'sharpness',  1,   '%', false],
+  ['gBloom',   'bloom',      1,   '%', false],
+  ['gFade',    'fade',       1,   '%', false],
+  ['gVig',     'vignette',   1,   '%', false],
+  ['gGrain',   'grain',      1,   '%', false],
+];
+
+function gradeLabel(raw, suffix, signed){
+  const r = Math.round(raw);
+  return (signed && r > 0 ? '+' : '') + r + suffix;
+}
+
+/** 调色：滑杆数值 + chip 高亮 + 「微调」状态提示 */
+function syncGradeUI(){
+  const s = state.settings;
+  const c = s.gradeCustom || identityGrade();
+  // 老版本存下来的 gradeCustom 可能缺字段，缺的按恒等值显示，别让滑杆变成 NaN
+  const g = k => (typeof c[k] === 'number' && isFinite(c[k])) ? c[k] : GRADE_IDENTITY[k];
+
+  for (const [id, key, scale, suffix, signed] of GRADE_UI){
+    const el = $(id), lbl = $(id + 'Val');
+    const raw = g(key) * scale;
+    if (el) el.value = Math.round(raw);
+    if (lbl) lbl.textContent = gradeLabel(raw, suffix, signed);
+  }
+
+  const wrap = $('gradeGrid');
+  if (wrap){
+    wrap.querySelectorAll('.grade').forEach(el => {
+      el.classList.toggle('on', el.dataset.grade === s.grade);
+    });
+  }
+  $('tuneState').textContent = s.grade === 'custom' ? '· 自定义' : '';
+}
+
 function syncUI(){
   const s = state.settings;
   $('ratio').value = s.ratio;
@@ -1724,7 +2299,10 @@ function syncUI(){
   $('radius').value = (s.radius * 100).toFixed(1);
   $('radVal').textContent = (s.radius * 100).toFixed(1) + '%';
   $('shadow').checked = s.shadow;
-  $('grain').checked = grainModeOf(s) !== 'off';
+  const ga = s.gradeAmount === undefined ? 1 : s.gradeAmount;
+  $('gradeAmount').value = Math.round(ga * 100);
+  $('gradeVal').textContent = Math.round(ga * 100) + '%';
+  syncGradeUI();
   $('bg').value = s.bg; $('bgTxt').textContent = s.bg.slice(1).toUpperCase();
   $('fg').value = s.fg; $('fgTxt').textContent = s.fg.slice(1).toUpperCase();
   $('accent').value = s.accent; $('acTxt').textContent = s.accent.slice(1).toUpperCase();
@@ -2195,23 +2773,31 @@ async function exportOne(photo){
 const SETTING_RANGES = {
   padding:[0.01,0.14], fontScale:[0.01,0.04], radius:[0,0.03],
   blurAmount:[0.01,0.24], blurScale:[1,1.8], blurDim:[0.3,1.15], blurSat:[0.5,2],
-  subjectScale:[0.55,0.96], feather:[0,0.25], edgeShadow:[0,1]
+  subjectScale:[0.55,0.96], feather:[0,0.25], edgeShadow:[0,1],
+  gradeAmount:[0,1]
 };
 const SETTING_ENUMS = {
   template:Object.keys(TEMPLATES),
+  grade:Object.keys(GRADES).concat('custom'),
   ratio:['orig','1','0.8','1.5','1.7778','0.75'],
   format:['jpg','png'],
-  grainMode:['off','subject'],
   outSize:[0,1080,1600,2000,3000,4000],
   jpgQuality:[0.9,0.95,0.99]
 };
 
 /** 只接受已知 key、类型一致、枚举合法、数值在范围内的项 */
 function sanitizeSettings(obj){
-  // 旧的「全图 / 主体以外」颗粒模式已移除，旧预设和旧 JSON 统一收敛到主体颗粒
-  if (obj.grainMode === 'all' || obj.grainMode === 'edge') obj.grainMode = 'subject';
-  if (obj.grainMode === undefined && typeof obj.grain === 'boolean'){
-    obj.grainMode = obj.grain ? 'subject' : 'off';
+  // 颗粒从「版式参数」的开关挪进了调色滑杆（gradeCustom.grain）。
+  // 旧预设 / 旧 JSON 里只有 grainMode，折算成 50% 强度灌进去，观感和旧版固定开关接近。
+  // 注意要在主循环之前做：主循环遍历的是 state.settings 的键，已经没有 grainMode 了。
+  // 也不能无条件补一个 {} 出来，否则下面「缺 gradeCustom 时按预设补齐」会以为字段存在。
+  if (obj.gradeCustom === undefined && (obj.grainMode !== undefined || obj.grain !== undefined)){
+    obj.gradeCustom = {};
+  }
+  if (obj.gradeCustom && typeof obj.gradeCustom === 'object' && !Array.isArray(obj.gradeCustom)
+      && !Object.prototype.hasOwnProperty.call(obj.gradeCustom, 'grain')){
+    const legacyOn = obj.grainMode === 'subject' || obj.grainMode === 'all' || obj.grainMode === 'edge';
+    if (legacyOn || obj.grain === true) obj.gradeCustom.grain = 50;
   }
 
   const s = state.settings;
@@ -2219,6 +2805,21 @@ function sanitizeSettings(obj){
   for (const k of Object.keys(s)){
     if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
     const v = obj[k];
+
+    // 嵌套对象必须逐项校验，不能整个覆盖，否则一个坏值就能把滑杆搞崩
+    if (k === 'gradeCustom'){
+      if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+      let hit = 0;
+      for (const f of Object.keys(GRADE_FIELDS)){
+        const nv = v[f];
+        if (typeof nv !== 'number' || !isFinite(nv)) continue;
+        s.gradeCustom[f] = Math.min(GRADE_FIELDS[f][1], Math.max(GRADE_FIELDS[f][0], nv));
+        hit++;
+      }
+      if (hit) n++;
+      continue;
+    }
+
     if (typeof v !== typeof s[k]) continue;
     if (SETTING_ENUMS[k] && SETTING_ENUMS[k].indexOf(v) < 0) continue;
     if (SETTING_RANGES[k]){
@@ -2229,6 +2830,14 @@ function sanitizeSettings(obj){
     }
     n++;
   }
+
+  // 老预设 / 老 JSON 只有 grade 没有 gradeCustom，补一份预设值，
+  // 否则滑杆会全是恒等值，跟 chip 上高亮的预设对不上。
+  // 只认「字段整个不存在」，脏值（null / 数组 / 字符串）走上面的丢弃分支，不动现有参数。
+  if (!Object.prototype.hasOwnProperty.call(obj, 'gradeCustom') && s.grade !== 'custom'){
+    syncGradeCustomFrom(s.grade);
+  }
+
   return n;
 }
 
@@ -2236,6 +2845,7 @@ function applySettings(obj){
   const n = sanitizeSettings(obj);
   syncUI();
   buildChips();
+  buildGradeChips();
   scheduleRender();
   return n;
 }
@@ -2322,6 +2932,27 @@ function bind(){
   slider('padding', 'padding', 100, '%', 'padVal');
   slider('fontScale', 'fontScale', 100, '%', 'fsVal');
   slider('radius', 'radius', 100, '%', 'radVal');
+  slider('gradeAmount', 'gradeAmount', 100, '%', 'gradeVal', 0);
+
+  /* 调色微调：任意一根滑杆动一下就切到「自定义」。表驱动，加参数只改 GRADE_UI */
+  for (const [id, key, scale, suffix, signed] of GRADE_UI){
+    const el = $(id);
+    if (!el) continue;
+    el.oninput = e => {
+      const raw = +e.target.value;
+      state.settings.gradeCustom[key] = raw / scale;
+      state.settings.grade = 'custom';
+      $(id + 'Val').textContent = gradeLabel(raw, suffix, signed);
+      const wrap = $('gradeGrid');
+      if (wrap){
+        wrap.querySelectorAll('.grade').forEach(b => {
+          b.classList.toggle('on', b.dataset.grade === 'custom');
+        });
+      }
+      $('tuneState').textContent = '· 自定义';
+      scheduleRender();
+    };
+  }
   /* 柔焦参数 */
   slider('blurAmount', 'blurAmount', 100, '%', 'blurVal', 1);
   slider('blurScale', 'blurScale', 100, '%', 'scaleVal', 0);
@@ -2361,7 +2992,6 @@ function bind(){
 
 
   $('shadow').onchange = e => { state.settings.shadow = e.target.checked; scheduleRender(); };
-  $('grain').onchange = e => { state.settings.grainMode = e.target.checked ? 'subject' : 'off'; scheduleRender(); };
 
   const colorBind = (id, txt, key) => {
     $(id).oninput = e => {
@@ -2553,6 +3183,7 @@ function loadPreset(){
 /* ---------- 启动 ---------- */
 loadPreset();
 buildChips();
+buildGradeChips();
 syncUI();
 bind();
 </script>
