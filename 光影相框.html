@@ -2,7 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F7F3EB">
+<meta name="description" content="批量给照片加相框，自动读取相机参数。纯前端，零依赖。">
 <title>光影相框 · 批量加框工作台</title>
 <style>
   :root{
@@ -129,7 +131,7 @@
     gap:14px;pointer-events:none;
   }
   #empty .box{
-    width:340px;border:1.5px dashed #D6C9B4;border-radius:16px;padding:38px 24px;text-align:center;
+    width:min(340px,100%);border:1.5px dashed #D6C9B4;border-radius:16px;padding:38px 24px;text-align:center;
     background:rgba(255,253,248,.6);
   }
   #empty h2{font-family:var(--serif);font-size:17px;font-weight:500;margin:0 0 8px;letter-spacing:.04em}
@@ -150,10 +152,20 @@
     display:flex;align-items:center;justify-content:center;cursor:zoom-in;
   }
   .thumb canvas{width:100%;height:auto;display:block}
+  .thumb.err{background:#FBF4EF;border:1px dashed #D9B9A6;cursor:default;aspect-ratio:4/3}
+  .thumb .errmsg{
+    font-size:11px;color:#A0522D;text-align:center;line-height:1.7;padding:0 14px;
+    word-break:break-all;
+  }
   .meta{padding:9px 2px 2px}
   .fname{
-    font-size:11.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    font-weight:500;
+    display:flex;align-items:center;gap:6px;
+    font-size:11.5px;color:var(--ink);font-weight:500;
+  }
+  .fname .nm{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rawtag{
+    flex:0 0 auto;font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;
+    padding:1.5px 4px;border-radius:3px;background:var(--accent-soft);color:var(--accent);
   }
   .exif{
     font-family:var(--mono);font-size:9.5px;color:var(--muted);margin-top:4px;
@@ -172,6 +184,15 @@
   }
   .card:hover .pick,.card.off .pick{opacity:1}
   .pick input{accent-color:var(--accent);width:13px;height:13px;margin:0;cursor:pointer}
+  /* 删除单张 */
+  .card .del{
+    position:absolute;top:16px;right:16px;width:22px;height:22px;border-radius:50%;padding:0;
+    background:rgba(255,255,255,.94);border:1px solid var(--line);color:var(--ink-2);
+    font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;
+    opacity:0;transition:.15s;z-index:2;
+  }
+  .card:hover .del{opacity:1}
+  .card .del:hover{background:#C0553A;border-color:#C0553A;color:#fff}
   /* toast */
   #toast{
     position:fixed;bottom:26px;left:50%;transform:translate(-50%,20px);
@@ -179,10 +200,17 @@
     opacity:0;pointer-events:none;transition:.25s;z-index:200;letter-spacing:.02em;
   }
   #toast.on{opacity:1;transform:translate(-50%,0)}
+  /* 带「手动保存」链接时，toast 要能接收点击 */
+  #toast.has-act{pointer-events:auto}
+  #toast .toast-act{
+    color:#F2C9A0;text-decoration:underline;text-underline-offset:2px;
+    margin-left:10px;cursor:pointer;
+  }
+  #toast .toast-act:hover{color:#FFFDF8}
   /* lightbox */
   #lb{
     position:fixed;inset:0;background:rgba(26,22,17,.86);z-index:150;
-    display:none;align-items:center;justify-content:center;padding:40px;
+    display:none;align-items:center;justify-content:center;padding:40px 40px 96px;
   }
   #lb.on{display:flex}
   #lb canvas{max-width:100%;max-height:100%;box-shadow:0 24px 60px rgba(0,0,0,.5);border-radius:4px}
@@ -190,7 +218,125 @@
     position:absolute;top:22px;right:26px;background:none;border:none;color:#EDE6DA;
     font-size:26px;line-height:1;cursor:pointer;
   }
-  .dragover main{outline:2px dashed var(--accent);outline-offset:-10px}
+  /* lightbox 工具条 */
+  .lb-bar{
+    position:absolute;bottom:22px;left:50%;transform:translateX(-50%);
+    display:flex;align-items:center;gap:6px;
+    background:rgba(20,16,13,.74);border:1px solid rgba(255,255,255,.14);
+    border-radius:999px;padding:6px 10px;
+  }
+  .lb-bar button{
+    background:none;border:none;color:#EDE6DA;font-size:13px;padding:5px 11px;
+    border-radius:999px;cursor:pointer;transition:.14s;
+  }
+  .lb-bar button:hover{background:rgba(255,255,255,.13)}
+  .lb-bar button:disabled{opacity:.35;cursor:not-allowed}
+  .lb-bar #lbInfo{
+    font-family:var(--mono);font-size:11px;color:#B9AFA2;min-width:54px;text-align:center;
+    letter-spacing:.04em;
+  }
+  .lb-bar #lbExport{border:1px solid rgba(255,255,255,.22)}
+  .lb-bar #lbDel:hover{background:#C0553A}
+  .dragover .app{outline:2px dashed var(--accent);outline-offset:-10px}
+
+  /* ================= 响应式 ================= */
+  .panel-btn{display:none}
+  .panel-head{display:none}
+  .scrim{display:none}
+
+  /* 触屏没有 hover：勾选框和删除按钮必须常显，否则手机上根本没法取消勾选 / 删图
+     注意用 .card .del 而不是 .del —— 基础规则是 .card .del，权重不够会被压回去 */
+  @media (hover:none){
+    .pick,.card .del{opacity:1}
+  }
+
+  /* 触屏放大可点区域，滑杆细得点不中 */
+  @media (pointer:coarse){
+    input[type=range]{height:4px;margin:6px 0 16px}
+    input[type=range]::-webkit-slider-thumb{width:22px;height:22px}
+    .pick{width:28px;height:28px}
+    .pick input{width:17px;height:17px}
+    .card .del{width:28px;height:28px;font-size:17px}
+    .tpl{padding:8px 4px 7px}
+    .tpl b{font-size:11px}
+    .sw{width:26px;height:26px}
+    .chip{padding:5px 8px;font-size:10.5px}
+  }
+
+  /* 平板竖屏 / 手机：侧栏变成抽屉 */
+  @media (max-width:900px){
+    body{height:100vh;height:100dvh}
+    header{height:56px;padding:0 12px;gap:8px}
+    .brand span{display:none}
+    .brand h1{font-size:17px}
+    .panel-btn{display:inline-flex;align-items:center;padding:8px 11px}
+    #count{font-size:10px}
+
+    aside{
+      position:fixed;top:0;left:0;bottom:0;z-index:60;
+      width:min(86vw,340px);
+      transform:translateX(-100%);
+      transition:transform .26s cubic-bezier(.4,0,.2,1);
+      box-shadow:0 0 48px rgba(40,28,14,.22);
+      padding:0 0 calc(40px + env(safe-area-inset-bottom));
+      overscroll-behavior:contain;
+    }
+    body.panel-open aside{transform:none}
+
+    .panel-head{
+      display:flex;align-items:center;gap:10px;
+      position:sticky;top:0;z-index:2;
+      padding:12px 14px 12px 18px;
+      background:var(--paper-2);border-bottom:1px solid var(--line);
+    }
+    .panel-head span{font-family:var(--serif);font-size:15px;font-weight:600;letter-spacing:.06em}
+    .ph-btn{
+      margin-left:auto;font-size:11.5px;padding:5px 9px;border-radius:7px;
+      background:transparent;border:1px solid var(--line);color:var(--ink-2);
+    }
+    .ph-btn:disabled{opacity:.35;cursor:not-allowed}
+    .ph-close{
+      width:28px;height:28px;border-radius:50%;border:1px solid var(--line);
+      background:transparent;color:var(--ink-2);font-size:17px;line-height:1;padding:0;
+      display:flex;align-items:center;justify-content:center;
+    }
+
+    .scrim{
+      display:block;position:fixed;inset:0;z-index:55;
+      background:rgba(20,16,13,.44);
+      opacity:0;pointer-events:none;transition:opacity .26s;
+    }
+    body.panel-open .scrim{opacity:1;pointer-events:auto}
+
+    main{padding:12px 12px calc(40px + env(safe-area-inset-bottom))}
+    #grid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+    .card{padding:8px}
+
+    /* 字号低于 16px 时 iOS 一聚焦就会放大整页 */
+    select,input[type=text],textarea{font-size:16px}
+    textarea{min-height:64px}
+
+    #lb{padding:14px 12px calc(78px + env(safe-area-inset-bottom))}
+    #lbClose{top:10px;right:12px;font-size:24px}
+    .lb-bar{
+      left:12px;right:12px;transform:none;justify-content:center;flex-wrap:wrap;
+      border-radius:14px;bottom:calc(14px + env(safe-area-inset-bottom));
+    }
+    .lb-bar #lbInfo{min-width:46px}
+  }
+
+  /* 手机：单列 + 头部精简 */
+  @media (max-width:560px){
+    .brand h1{font-size:16px}
+    #count{display:none}
+    #clearBtn{display:none}
+    #addBtn{padding:8px 11px}
+    #addBtn .lbl{display:none}
+    #exportBtn{padding:8px 13px;font-size:12px}
+    #grid{grid-template-columns:1fr;gap:10px}
+    .lb-bar button{padding:5px 9px;font-size:12px}
+    #empty .box{padding:28px 18px}
+  }
 </style>
 </head>
 <body>
@@ -200,14 +346,22 @@
     <span>batch framing studio</span>
   </div>
   <div class="spacer"></div>
+  <button class="btn-ghost panel-btn" id="panelBtn">参数</button>
   <div class="count" id="count">0 张照片</div>
-  <button class="btn-ghost" id="addBtn">＋ 添加照片</button>
+  <button class="btn-ghost" id="addBtn">＋<span class="lbl"> 添加照片</span></button>
+  <button class="btn-ghost" id="clearBtn" disabled>清空</button>
   <button class="btn" id="exportBtn" disabled>导出全部</button>
-  <input type="file" id="file" accept="image/*" multiple hidden>
+  <input type="file" id="file" accept="image/*,.nef,.nrw,.cr2,.cr3,.arw,.srf,.sr2,.dng,.raf,.orf,.rw2,.raw,.pef,.srw,.3fr,.iiq,.mos,.mrw,.x3f,.erf,.kdc,.dcr,.rwl" multiple hidden>
 </header>
 
 <div class="app">
   <aside>
+    <div class="panel-head">
+      <span>参数</span>
+      <button class="ph-btn" id="clearBtn2" disabled>清空照片</button>
+      <button class="ph-close" id="panelClose" aria-label="关闭">×</button>
+    </div>
+
     <div class="group">
       <h3>版式</h3>
       <div class="tpl-grid" id="tplGrid"></div>
@@ -221,13 +375,13 @@
       <input type="range" id="blurScale" min="100" max="180" step="5" value="125">
       <div class="row"><label>背景亮度</label><span class="val" id="dimVal">95%</span></div>
       <input type="range" id="blurDim" min="50" max="115" step="1" value="95">
-      <div class="row"><label>主体大小</label><span class="val" id="subjVal">80%</span></div>
-      <input type="range" id="subjectScale" min="55" max="96" step="1" value="80">
-      <div class="row"><label>边缘羽化</label><span class="val" id="feathVal">6%</span></div>
-      <input type="range" id="feather" min="0" max="25" step="1" value="6">
+      <div class="row"><label>主体大小</label><span class="val" id="subjVal">90%</span></div>
+      <input type="range" id="subjectScale" min="55" max="96" step="1" value="90">
+      <div class="row"><label>边缘羽化</label><span class="val" id="feathVal">0%</span></div>
+      <input type="range" id="feather" min="0" max="25" step="1" value="0">
       <div class="row"><label>边缘阴影</label><span class="val" id="eshVal">60%</span></div>
       <input type="range" id="edgeShadow" min="0" max="100" step="5" value="60">
-      <div class="hint">原图放大虚化做底，主体居中清晰，边缘柔和融入背景。羽化调到 0 就是硬边卡片；阴影调到 0 则主体直接浮在虚化底上。</div>
+      <div class="hint">原图放大虚化做底，主体居中清晰。羽化默认 0，出来是硬边卡片；调大后边缘逐渐融入背景。阴影调到 0 则主体直接浮在虚化底上。</div>
     </div>
 
     <div class="group" id="markGroup" style="display:none">
@@ -298,15 +452,7 @@
       <input type="range" id="radius" min="0" max="3" step="0.1" value="0.4">
       <div class="row">
         <label class="check"><input type="checkbox" id="shadow" checked>投影</label>
-      </div>
-      <div class="row">
-        <label>颗粒</label>
-        <select id="grainMode" style="width:130px">
-          <option value="off">关闭</option>
-          <option value="all">全图</option>
-          <option value="subject">仅主体</option>
-          <option value="edge">主体以外</option>
-        </select>
+        <label class="check"><input type="checkbox" id="grain">颗粒</label>
       </div>
     </div>
 
@@ -347,7 +493,22 @@
         <button class="btn-ghost" id="savePreset" style="flex:1">保存当前样式</button>
         <button class="btn-ghost" id="resetPreset" style="flex:0 0 auto">重置</button>
       </div>
-      <div class="hint">样式保存在本机浏览器，下次打开自动恢复。</div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn-ghost" id="exportPreset" style="flex:1">导出参数</button>
+        <button class="btn-ghost" id="importPreset" style="flex:1">导入参数</button>
+      </div>
+      <input type="file" id="presetFile" accept="application/json,.json" hidden>
+      <div class="hint">样式保存在本机浏览器，下次打开自动恢复。「导出参数」得到一个 .json，可以发给别人用「导入参数」还原。</div>
+    </div>
+
+    <div class="group">
+      <h3>快捷键</h3>
+      <div class="hint" style="margin-top:0;line-height:2">
+        <b>1</b>–<b>8</b> 切换版式　<b>←</b> <b>→</b> 上一个/下一个版式<br>
+        <b>Ctrl/⌘ O</b> 添加照片　<b>Ctrl/⌘ E</b> 导出全部<br>
+        <b>Ctrl/⌘ S</b> 保存样式　<b>Esc</b> 关闭大图<br>
+        大图内：<b>←</b> <b>→</b> 翻页　<b>Delete</b> 删除这张
+      </div>
     </div>
   </aside>
 
@@ -355,40 +516,85 @@
     <div id="empty">
       <div class="box">
         <h2>把照片拖进来</h2>
-        <p>支持 JPG / PNG / WebP 批量导入<br>自动读取相机、镜头、光圈、快门、ISO<br>选好版式后一次导出全部</p>
+        <p>支持 JPG / PNG / WebP，以及 NEF / CR2 / ARW / DNG 等 RAW<br>RAW 自动抽取相机内嵌的预览图，并读取其中的拍摄参数<br>选好版式后一次导出全部</p>
       </div>
     </div>
     <div id="grid"></div>
   </main>
 </div>
 
+<div class="scrim" id="scrim"></div>
+
 <div id="toast"></div>
-<div id="lb"><button id="lbClose">×</button><canvas id="lbCanvas"></canvas></div>
+<div id="lb">
+  <button id="lbClose" title="关闭（Esc）">×</button>
+  <canvas id="lbCanvas"></canvas>
+  <div class="lb-bar">
+    <button id="lbPrev" title="上一张（←）">‹</button>
+    <span id="lbInfo">1 / 1</span>
+    <button id="lbNext" title="下一张（→）">›</button>
+    <button id="lbExport" title="只导出这一张">导出这张</button>
+    <button id="lbDel" title="移除这张（Delete）">删除</button>
+  </div>
+</div>
 
 <script>
 /* ==================== CORE:START  (pure logic, testable in node) ==================== */
 
-/* ---------- EXIF 解析（JPEG APP1 / TIFF IFD） ---------- */
+/* ---------- EXIF 解析（JPEG APP1 / RAW 的 TIFF 容器） ---------- */
+/** 在字节流里找一段 ASCII，返回起始位置 */
+function findAscii(u8, str, from, to){
+  const n = str.length;
+  const limit = Math.min(to === undefined ? u8.length : to, u8.length) - n;
+  for (let i = from || 0; i <= limit; i++){
+    let hit = true;
+    for (let k = 0; k < n; k++){
+      if (u8[i + k] !== str.charCodeAt(k)){ hit = false; break; }
+    }
+    if (hit) return i;
+  }
+  return -1;
+}
+
 function parseExif(buffer){
   try{
     const view = new DataView(buffer);
-    if (view.byteLength < 4 || view.getUint16(0) !== 0xFFD8) return null;
-    let off = 2;
-    while (off < view.byteLength - 4){
-      if (view.getUint8(off) !== 0xFF){ off++; continue; }
-      const marker = view.getUint8(off + 1);
-      if (marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)){ off += 2; continue; }
-      if (marker === 0xDA) break;                       // start of scan
-      const size = view.getUint16(off + 2);
-      if (size < 2) break;
-      if (marker === 0xE1){
-        const s = off + 4;
-        if (view.getUint32(s) === 0x45786966 && view.getUint16(s + 4) === 0){
-          return readTiff(view, s + 6);
+    if (view.byteLength < 8) return null;
+
+    // JPEG：SOI 之后找 APP1(Exif)
+    if (view.getUint16(0) === 0xFFD8){
+      let off = 2;
+      while (off < view.byteLength - 4){
+        if (view.getUint8(off) !== 0xFF){ off++; continue; }
+        const marker = view.getUint8(off + 1);
+        if (marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)){ off += 2; continue; }
+        if (marker === 0xDA) break;                       // start of scan
+        const size = view.getUint16(off + 2);
+        if (size < 2) break;
+        if (marker === 0xE1){
+          const s = off + 4;
+          if (view.getUint32(s) === 0x45786966 && view.getUint16(s + 4) === 0){
+            return readTiff(view, s + 6);
+          }
         }
+        off += 2 + size;
       }
-      off += 2 + size;
+      return null;
     }
+
+    // RAW：NEF / CR2 / ARW / DNG / ORF / PEF / RW2 本身就是 TIFF 容器，IFD 直接在文件头
+    const tiff = readTiff(view, 0);
+    if (tiff) return tiff;
+
+    // CR3 是 ISO BMFF，元数据藏在 CMT1 / CMT2 box 的 payload 里（内容仍是 TIFF 结构）
+    const u8 = new Uint8Array(buffer);
+    for (const box of ['CMT1', 'CMT2']){
+      const p = findAscii(u8, box, 0);
+      if (p < 0) continue;
+      const r = readTiff(view, p + 4);
+      if (r && (r.model || r.make)) return r;
+    }
+    return null;
   }catch(e){ /* 损坏文件静默降级 */ }
   return null;
 }
@@ -397,7 +603,9 @@ function readTiff(view, base){
   const le = view.getUint16(base) === 0x4949;           // II = little endian
   const u16 = o => view.getUint16(o, le);
   const u32 = o => view.getUint32(o, le);
-  if (u16(base + 2) !== 0x002A) return null;
+  // 标准 TIFF 是 0x2A；ORF 用 0x4F52 / 0x5352，RW2 用 0x0055
+  const magic = u16(base + 2);
+  if (magic !== 0x002A && magic !== 0x4F52 && magic !== 0x5352 && magic !== 0x0055) return null;
 
   const SIZE = {1:1,2:1,3:2,4:4,5:8,6:1,7:1,8:2,9:4,10:8,11:4,12:8};
 
@@ -437,11 +645,10 @@ function readTiff(view, base){
   const ifd0 = readIFD(u32(base + 4));
   const exifPtr = ifd0[0x8769];
   const exif = exifPtr ? readIFD(exifPtr) : {};
-  const sub = exif[0xA434] ? {} : (ifd0[0xA434] ? {} : {});
 
   const make = (ifd0[0x010F] || '').trim();
   const model = (ifd0[0x0110] || '').trim();
-  const lens = (exif[0xA434] || sub[0xA434] || '').trim();
+  const lens = (exif[0xA434] || '').trim();
   const fnum = exif[0x829D];
   const expo = exif[0x829A];
   const iso = exif[0x8827];
@@ -473,6 +680,59 @@ function fmtDate(s){
   if (!s) return '';
   const m = String(s).match(/(\d{4})[:\-](\d{2})[:\-](\d{2})/);
   return m ? m[1] + '.' + m[2] + '.' + m[3] : String(s).slice(0, 10);
+}
+
+/* ---------- RAW 容器：抽内嵌 JPEG 预览 ---------- */
+/* 浏览器解不了 RAW 的像素数据，但相机在 RAW 里都会存一张 JPEG 预览。
+   与其塞几 MB 的 WASM 解码器（破坏「单文件零依赖」），不如把这张预览取出来用。 */
+const RAW_EXT = /\.(nef|nrw|cr2|cr3|arw|srf|sr2|dng|raf|orf|rw2|raw|pef|srw|3fr|iiq|mos|mrw|x3f|erf|kdc|dcr|rwl)$/i;
+function isRawFile(name){ return RAW_EXT.test(String(name || '')); }
+
+/** 从 start（指向 FFD8）走到 EOI，返回结束位置（不含）；不是合法 JPEG 返回 -1 */
+function jpegEndAt(u8, start){
+  const n = u8.length;
+  let p = start + 2;
+  while (p + 3 < n){
+    if (u8[p] !== 0xFF) return -1;
+    const m = u8[p + 1];
+    if (m === 0xFF){ p++; continue; }                    // 填充字节
+    if (m === 0xD8 || m === 0x01 || (m >= 0xD0 && m <= 0xD7)){ p += 2; continue; }
+    if (m === 0xD9) return p + 2;
+    const len = (u8[p + 2] << 8) | u8[p + 3];
+    if (len < 2) return -1;
+    if (m === 0xDA){                                     // 进入扫描数据，找 EOI
+      let q = p + 2 + len;
+      while (q + 1 < n){
+        if (u8[q] === 0xFF){
+          const k = u8[q + 1];
+          if (k === 0xD9) return q + 2;
+          if (k === 0x00 || (k >= 0xD0 && k <= 0xD7)){ q += 2; continue; }
+          if (k === 0xFF){ q++; continue; }
+          break;                                         // 遇到别的 marker，说明结构异常
+        }
+        q++;
+      }
+      return -1;
+    }
+    p += 2 + len;
+  }
+  return -1;
+}
+
+/** 扫整个容器，返回最大的那张内嵌 JPEG（相机的全尺寸/中尺寸预览） */
+function extractJpegPreview(buf){
+  const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let bestStart = -1, bestLen = 0;
+  for (let i = 0; i + 3 < u8.length; i++){
+    if (u8[i] !== 0xFF || u8[i + 1] !== 0xD8 || u8[i + 2] !== 0xFF) continue;
+    const end = jpegEndAt(u8, i);
+    if (end < 0) continue;
+    const len = end - i;
+    if (len > bestLen){ bestStart = i; bestLen = len; }
+    if (len > 64) i = end - 3;                           // 整段跳过，别重复扫
+  }
+  if (bestStart < 0) return null;
+  return u8.subarray(bestStart, bestStart + bestLen);
 }
 
 /* ---------- CRC32 + 无压缩 ZIP 打包 ---------- */
@@ -707,12 +967,15 @@ function noisePattern(ctx, grainPx){
   return pat;
 }
 
+/** 颗粒开关：只有「关 / 主体」两态。旧预设里的 all / edge 统一收敛到主体颗粒 */
 function grainModeOf(s){
-  return s.grainMode || (s.grain ? 'all' : 'off');
+  if (s.grainMode === 'subject' || s.grainMode === 'all' || s.grainMode === 'edge') return 'subject';
+  if (s.grainMode === 'off') return 'off';
+  return s.grain ? 'subject' : 'off';        // 更早的布尔字段
 }
 
 /** 柔焦专用：颗粒跟着羽化边缘走，避免在主体边界切出硬边 */
-function paintGrainFeathered(ctx, W, H, short, img, dw, dh, featherPx, radius, dx, dy, mode){
+function paintGrainFeathered(ctx, W, H, short, img, dw, dh, featherPx, radius, dx, dy){
   const pad = Math.ceil(Math.min(short * 0.05, 140));
   const mask = makeFeathered(img, dw, dh, featherPx, radius, pad);
 
@@ -722,7 +985,8 @@ function paintGrainFeathered(ctx, W, H, short, img, dw, dh, featherPx, radius, d
   lc.fillStyle = noisePattern(lc, Math.max(1, short * 0.0013));
   lc.fillRect(0, 0, W, H);
 
-  lc.globalCompositeOperation = mode === 'subject' ? 'destination-in' : 'destination-out';
+  // 噪点只留主体那一块，边界跟着羽化一起渐变
+  lc.globalCompositeOperation = 'destination-in';
   lc.drawImage(mask.canvas, dx - pad, dy - pad, dw + pad * 2, dh + pad * 2);
 
   ctx.save();
@@ -733,25 +997,18 @@ function paintGrainFeathered(ctx, W, H, short, img, dw, dh, featherPx, radius, d
 }
 
 /**
- * 颗粒绘制
- * @param mode  'all' 全图 | 'subject' 只主体 | 'edge' 主体以外
- * @param rect  主体区域 {x,y,w,h,r}，all 模式可省略
+ * 颗粒绘制：只加在照片主体上。
+ * 早期还有「全图 / 主体以外」两种模式，实际观感都接近「整张照片糊一层噪点」
+ * （柔焦的底图本身就是虚化的原图），已移除。
+ * @param rect 主体区域 {x,y,w,h,r}
  */
-function paintGrain(ctx, W, H, short, mode, rect){
-  const m = mode || 'all';
-  if (m === 'off') return;
+function paintGrain(ctx, W, H, short, rect){
+  if (!rect) return;
 
   ctx.save();
-  if (m !== 'all' && rect){
-    ctx.beginPath();
-    if (m === 'subject'){
-      addRoundPath(ctx, rect.x, rect.y, rect.w, rect.h, rect.r || 0);
-    } else {
-      ctx.rect(0, 0, W, H);
-      addRoundPath(ctx, rect.x, rect.y, rect.w, rect.h, rect.r || 0);
-    }
-    ctx.clip(m === 'edge' ? 'evenodd' : 'nonzero');
-  }
+  ctx.beginPath();
+  addRoundPath(ctx, rect.x, rect.y, rect.w, rect.h, rect.r || 0);
+  ctx.clip();
   ctx.globalCompositeOperation = 'overlay';
   ctx.globalAlpha = 0.42;
   ctx.fillStyle = noisePattern(ctx, Math.max(1, short * 0.0013));
@@ -812,13 +1069,12 @@ function renderFrame(photo, s, longEdge){
   const ctx = cv.getContext('2d', {alpha: false});
 
   const short = Math.min(W, H);
-  const fs = Math.max(8, short * s.fontScale);
   const pad = short * s.padding;
   const radius = short * s.radius;
   const tplName = s.template;
   const tpl = TEMPLATES[tplName];
   const bg = s.bg, fg = s.fg, accent = s.accent;
-  const lines = infoLines(photo, s);
+  let lines = infoLines(photo, s);
   const title = (photo.caption || s.title || '').trim();
   const author = (s.author || '').trim();
   const family = tpl.family === 'serif' ? FONTS.serif : FONTS.sans;
@@ -828,12 +1084,23 @@ function renderFrame(photo, s, longEdge){
   ctx.fillRect(0, 0, W, H);
 
   /* ---- 几何：照片区 / 文字区 ---- */
+  // 文字块总高与字号严格成正比：先按目标字号算一遍，放不下就整体缩字，
+  // 缩到下限还放不下再从末尾砍信息行——避免长标题 + 多行信息把文字画出画布。
+  const blockOf = f => (title ? f * (tplName === 'editorial' ? 1.9 : 1.65) * 1.3 : 0)
+                        + lines.length * f * 1.7
+                        + (author ? (tpl.align === 'center' ? f * 1.5 : f * 0.95) : 0);
+  let fs = Math.max(8, short * s.fontScale);
+  const maxBlockH = Math.max(short * 0.1, H - pad * 2 - short * 0.18);
+  if (blockOf(fs) > maxBlockH){
+    const floor = Math.max(6, short * 0.006);
+    fs = Math.max(floor, fs * maxBlockH / blockOf(fs));
+    let guard = 0;
+    while (blockOf(fs) > maxBlockH && lines.length > 1 && guard++ < 40) lines = lines.slice(0, -1);
+  }
   const gap = fs * 1.2;                                   // 照片与文字的呼吸间距
   const titleSize = fs * (tplName === 'editorial' ? 1.9 : 1.65);
   const lineH = fs * 1.7;
-  const blockH = (title ? titleSize * 1.3 : 0)
-               + lines.length * lineH
-               + (author ? (tpl.align === 'center' ? fs * 1.5 : fs * 0.95) : 0);
+  const blockH = blockOf(fs);
 
   let px = pad, py = pad, pw = W - pad * 2, ph = H - pad * 2;
   let capX = pad, capTop = 0, capW = W - pad * 2, capAlign = tpl.align;
@@ -862,6 +1129,11 @@ function renderFrame(photo, s, longEdge){
   } else {
     ph = H - pad * 2 - (gap + blockH);
     capTop = py + ph + gap;
+  }
+
+  // 兜底：文字块整体不得越过下边距（极端字号 + 超多行时才会触发）
+  if (capTop + blockH > H - pad * 0.3){
+    capTop = Math.max(pad * 0.3, H - pad * 0.3 - blockH);
   }
 
   ph = Math.max(ph, short * 0.25);
@@ -967,7 +1239,7 @@ function renderFrame(photo, s, longEdge){
     ctx.fillRect(capX - fs * 0.85, capTop + fs * 0.18, Math.max(2, fs * 0.15), barH);
   }
 
-  paintGrain(ctx, W, H, short, grainModeOf(s), {x: px, y: py, w: pw, h: ph, r: radius});
+  if (grainModeOf(s) !== 'off') paintGrain(ctx, W, H, short, {x: px, y: py, w: pw, h: ph, r: radius});
 
   return cv;
 }
@@ -1099,14 +1371,14 @@ function renderSoft(photo, s, W, H){
 
   // 主体：居中、留出文字区空间
   const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
-  let dw = short * (s.subjectScale || 0.8);
+  let dw = short * (s.subjectScale || 0.9);
   let dh = dw * ih / iw;
   const maxW = innerW;
   if (dh > availH){ dh = availH; dw = dh * iw / ih; }
   if (dw > maxW){ dw = maxW; dh = dw * ih / iw; }
   const dx = (W - dw) / 2;
   const dy = pad + (availH - dh) / 2;
-  const featherPx = short * (s.feather === undefined ? 0.1 : s.feather);
+  const featherPx = short * (s.feather === undefined ? 0 : s.feather);
 
   // 边缘阴影：用羽化剪影做投影，避免露出硬边矩形
   const shadowAmt = s.edgeShadow === undefined ? 0.6 : s.edgeShadow;
@@ -1156,9 +1428,7 @@ function renderSoft(photo, s, W, H){
   ctx.shadowBlur = 0;
   ctx.shadowColor = 'transparent';
 
-  const gm = grainModeOf(s);
-  if (gm === 'all') paintGrain(ctx, W, H, short, 'all');
-  else if (gm !== 'off') paintGrainFeathered(ctx, W, H, short, img, dw, dh, featherPx, radius, dx, dy, gm);
+  if (grainModeOf(s) !== 'off') paintGrainFeathered(ctx, W, H, short, img, dw, dh, featherPx, radius, dx, dy);
 
   return cv;
 }
@@ -1180,7 +1450,7 @@ function captionMetrics(photo, s, short){
   const authAlone = !line1 && !line2 && !!line3;
   const capB = brandSize * 0.72;           // 品牌行基线上方高度
   const subGap = brandSize * 1.95;         // 副标基线相对品牌行
-  const authGap = brandSize * 1.62;        // 署名基线相对副标
+  const authGap = brandSize * 1.75;        // 署名基线相对副标
   const headH = line1 ? capB : (authAlone ? brandSize * 0.72 : 0);
   const blockH = headH
     + (line2 ? subGap : 0)
@@ -1236,9 +1506,10 @@ function drawCaption(ctx, m, s, W, blockTop, maxW){
   if (line3){
     cursorY += (line2 ? authGap : (line1 ? subGap : 0));
     ctx.fillStyle = textColor;
-    ctx.globalAlpha = 0.62;
+    ctx.globalAlpha = 0.8;
     ctx.textAlign = 'center';
-    const sz3 = authAlone ? brandSize : subSize * 0.92;
+    // 署名不再压到 0.92 倍副标——那个尺寸在缩略图里只有几个像素，等于看不见
+    const sz3 = authAlone ? brandSize : subSize;
     const s3 = fitSize(ctx, line3, maxW, sz3, FONTS.sans, 400);
     tracked(ctx, s3 * 0.16);
     ctx.fillText(line3, cx, cursorY);
@@ -1304,7 +1575,7 @@ function renderWatermark(photo, s, W, H){
   const blockTop = photoBottom + (band - m.blockH) / 2 - band * 0.02;
   drawCaption(ctx, m, s, W, blockTop, W - pad * 2);
 
-  paintGrain(ctx, W, H, short, grainModeOf(s), {x: px, y: py, w: pw, h: ph, r: radius});
+  if (grainModeOf(s) !== 'off') paintGrain(ctx, W, H, short, {x: px, y: py, w: pw, h: ph, r: radius});
 
   return cv;
 }
@@ -1338,8 +1609,8 @@ const state = {
     blurScale: 1.25,
     blurDim: 0.95,
     blurSat: 1.12,
-    subjectScale: 0.80,
-    feather: 0.06,
+    subjectScale: 0.90,
+    feather: 0,
     edgeShadow: 0.6,
     /* 底部文字（光影 / 柔焦） */
     markText: '{camera}',
@@ -1407,6 +1678,21 @@ function paintChip(cv, key){
   c.globalAlpha = 1;
 }
 
+/* 切换版式：套用该版式的默认配色/边距，并重置会串味的参数 */
+function applyTemplate(k){
+  const t = TEMPLATES[k];
+  if (!t) return;
+  const FB = {radius: 0.004, blurAmount: 0.07, blurDim: 0.95, blurSat: 1.12};
+  const next = {template: k, bg: t.bg, fg: t.fg, accent: t.accent, padding: t.pad};
+  ['radius', 'blurAmount', 'blurDim', 'blurSat'].forEach(key => {
+    next[key] = t[key] !== undefined ? t[key] : FB[key];
+  });
+  Object.assign(state.settings, next);
+  syncUI();
+  buildChips();
+  scheduleRender();
+}
+
 function buildChips(){
   const wrap = $('tplGrid');
   wrap.innerHTML = '';
@@ -1419,22 +1705,7 @@ function buildChips(){
     const label = document.createElement('b');
     label.textContent = TEMPLATES[k].name;
     b.appendChild(cv); b.appendChild(label);
-    b.onclick = () => {
-      const t = TEMPLATES[k];
-      const next = {
-        template: k,
-        bg: t.bg, fg: t.fg, accent: t.accent,
-        padding: t.pad
-      };
-      const FB = {radius: 0.004, blurAmount: 0.07, blurDim: 0.95, blurSat: 1.12};
-      ['radius', 'blurAmount', 'blurDim', 'blurSat'].forEach(key => {
-        next[key] = t[key] !== undefined ? t[key] : FB[key];
-      });
-      Object.assign(state.settings, next);
-      syncUI();
-      buildChips();
-      scheduleRender();
-    };
+    b.onclick = () => applyTemplate(k);
     wrap.appendChild(b);
   });
 }
@@ -1453,7 +1724,7 @@ function syncUI(){
   $('radius').value = (s.radius * 100).toFixed(1);
   $('radVal').textContent = (s.radius * 100).toFixed(1) + '%';
   $('shadow').checked = s.shadow;
-  $('grainMode').value = grainModeOf(s);
+  $('grain').checked = grainModeOf(s) !== 'off';
   $('bg').value = s.bg; $('bgTxt').textContent = s.bg.slice(1).toUpperCase();
   $('fg').value = s.fg; $('fgTxt').textContent = s.fg.slice(1).toUpperCase();
   $('accent').value = s.accent; $('acTxt').textContent = s.accent.slice(1).toUpperCase();
@@ -1496,29 +1767,94 @@ function updateBlurGroup(){
 }
 
 /* ---------- 导入 ---------- */
+/* EXIF 的 APP1 段紧跟在 SOI 之后、最大 64KB，读前 256KB 足够定位。
+   不再把整张图读进内存（20MB 的图只为 2KB 元数据）。 */
+const EXIF_HEAD_BYTES = 256 * 1024;
+
+function readExifFromFile(file){
+  return new Promise(resolve => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(parseExif(fr.result));
+    fr.onerror = () => resolve(null);
+    fr.readAsArrayBuffer(file.slice(0, Math.min(file.size, EXIF_HEAD_BYTES)));
+  });
+}
+
+function loadImageEl(url){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('无法解码'));
+    img.src = url;
+  });
+}
+
+/** RAW：读全文件 → 解析 TIFF 里的 EXIF + 抽出内嵌 JPEG 预览 */
+async function readRawFile(file){
+  const buf = await file.arrayBuffer();
+  let exif = null;
+  try{ exif = parseExif(buf); }catch(e){}
+  const jpeg = extractJpegPreview(buf);
+  return {exif, jpeg};
+}
+
+async function loadPhoto(photo, file){
+  if (isRawFile(file.name)){
+    photo.raw = true;
+    const r = await readRawFile(file);
+    photo.exif = r.exif;
+    if (!r.jpeg) throw new Error('RAW 无内嵌预览');
+    const url = URL.createObjectURL(new Blob([r.jpeg], {type: 'image/jpeg'}));
+    try{ photo.img = await loadImageEl(url); }
+    finally{ URL.revokeObjectURL(url); }
+    return;
+  }
+  photo.exif = await readExifFromFile(file);
+  const url = URL.createObjectURL(file);
+  try{ photo.img = await loadImageEl(url); }
+  finally{ URL.revokeObjectURL(url); }
+}
+
+/* RAW 单张 30–60MB，十张并行读能把内存吃穿，所以串行排队 */
+const rawQueue = {tail: Promise.resolve()};
+function queueRaw(task){
+  const p = rawQueue.tail.then(task, task);
+  rawQueue.tail = p.then(() => {}, () => {});
+  return p;
+}
+
 function addFiles(files){
-  const list = [...files].filter(f => /^image\//.test(f.type));
-  if (!list.length){ toast('没有可用的图片文件'); return; }
-  let pending = list.length;
+  const list = [...files].filter(f => /^image\//.test(f.type) || isRawFile(f.name));
+  if (!list.length){ toast('没有可用的图片或 RAW 文件'); return; }
+  let pending = list.length, bad = 0;
+  const finish = () => {
+    if (--pending > 0) return;
+    renderGrid();
+    if (bad) toast(bad + ' 张无法处理，已自动跳过');
+  };
+
   list.forEach(file => {
     const id = ++uid;
-    const photo = {id, file, name: file.name, exif: null, img: null, caption: '', include: true, ready: false};
+    const photo = {id, file, name: file.name, exif: null, img: null, caption: '',
+                   include: true, ready: false, error: null, raw: false};
     state.photos.push(photo);
-    const reader = new FileReader();
-    reader.onload = () => {
-      const buf = reader.result;
-      photo.exif = parseExif(buf);
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
-        photo.img = img; photo.ready = true;
-        URL.revokeObjectURL(url);
-        if (--pending === 0){ renderGrid(); }
-      };
-      img.onerror = () => { if (--pending === 0) renderGrid(); };
-      img.src = url;
-    };
-    reader.readAsArrayBuffer(file);
+
+    const job = isRawFile(file.name)
+      ? queueRaw(() => loadPhoto(photo, file))
+      : loadPhoto(photo, file);
+
+    job.then(() => { photo.ready = true; finish(); })
+      .catch(err => {
+        // 失败：标红并自动取消勾选，避免「显示 5 张、只导出 4 张」
+        const msg = (err && err.message) || '';
+        const ext = (file.name.split('.').pop() || '').toUpperCase();
+        photo.error = msg === 'RAW 无内嵌预览'
+          ? 'RAW 无内嵌预览'
+          : '无法解码 · ' + (ext || '未知格式');
+        photo.include = false;
+        bad++;
+        finish();
+      });
   });
   renderGrid();
 }
@@ -1529,9 +1865,9 @@ function renderGrid(){
   const empty = $('empty');
   empty.style.display = state.photos.length ? 'none' : 'flex';
   $('count').textContent = state.photos.length + ' 张照片';
-  const sel = state.photos.filter(p => p.include).length;
-  $('exportBtn').disabled = sel === 0;
-  $('exportBtn').textContent = sel ? '导出 ' + sel + ' 张' : '导出全部';
+  $('clearBtn').disabled = state.photos.length === 0;
+  $('clearBtn2').disabled = state.photos.length === 0;
+  refreshExportBtn();
 
   grid.innerHTML = '';
   state.photos.forEach(photo => {
@@ -1542,7 +1878,15 @@ function renderGrid(){
     const thumb = document.createElement('div');
     thumb.className = 'thumb';
     const cv = document.createElement('canvas');
-    thumb.appendChild(cv);
+    if (photo.error){
+      thumb.classList.add('err');
+      const msg = document.createElement('div');
+      msg.className = 'errmsg';
+      msg.textContent = photo.error;
+      thumb.appendChild(msg);
+    } else {
+      thumb.appendChild(cv);
+    }
 
     const pick = document.createElement('label');
     pick.className = 'pick';
@@ -1551,16 +1895,23 @@ function renderGrid(){
     cb.onchange = () => {
       photo.include = cb.checked;
       card.classList.toggle('off', !cb.checked);
-      const n = state.photos.filter(p => p.include).length;
-      $('exportBtn').disabled = n === 0;
-      $('exportBtn').textContent = n ? '导出 ' + n + ' 张' : '导出全部';
+      refreshExportBtn();
     };
     pick.appendChild(cb);
 
     const meta = document.createElement('div');
     meta.className = 'meta';
     const fn = document.createElement('div');
-    fn.className = 'fname'; fn.textContent = photo.name;
+    fn.className = 'fname';
+    const nm = document.createElement('span');
+    nm.className = 'nm'; nm.textContent = photo.name;
+    fn.appendChild(nm);
+    if (photo.raw){
+      const tag = document.createElement('span');
+      tag.className = 'rawtag';
+      tag.textContent = 'RAW';
+      fn.appendChild(tag);
+    }
     const ex = document.createElement('div');
     ex.className = 'exif';
     ex.textContent = exifSummary(photo);
@@ -1571,7 +1922,12 @@ function renderGrid(){
     cap.oninput = () => { photo.caption = cap.value; scheduleRender(); };
 
     meta.appendChild(fn); meta.appendChild(ex); meta.appendChild(cap);
-    card.appendChild(thumb); card.appendChild(pick); card.appendChild(meta);
+    const del = document.createElement('button');
+    del.className = 'del';
+    del.textContent = '×';
+    del.title = '移除这张';
+    del.onclick = e => { e.stopPropagation(); removePhoto(photo.id); };
+    card.appendChild(thumb); card.appendChild(pick); card.appendChild(del); card.appendChild(meta);
     grid.appendChild(card);
 
     photo._canvas = cv;
@@ -1580,17 +1936,41 @@ function renderGrid(){
   });
 }
 
+/* ---------- 删除 ---------- */
+function removePhoto(id){
+  const i = state.photos.findIndex(p => p.id === id);
+  if (i < 0) return false;
+  state.photos.splice(i, 1);
+  renderGrid();
+  return true;
+}
+
+function clearAll(){
+  const n = state.photos.length;
+  if (!n) return;
+  if (!confirm('清空全部 ' + n + ' 张照片？\n样式参数会保留。')) return;
+  state.photos.length = 0;
+  renderGrid();
+  closeLightbox();
+  toast('已清空 ' + n + ' 张');
+}
+
 function exifSummary(p){
+  if (p.error) return p.error;
   const e = p.exif;
-  if (!e) return '无 EXIF 信息';
   const bits = [];
-  if (e.make || e.model) bits.push(cleanCamera(e.make, e.model));
-  if (e.focal) bits.push(e.focal);
-  if (e.fnum) bits.push(e.fnum);
-  if (e.shutter) bits.push(e.shutter);
-  if (e.iso) bits.push('ISO' + e.iso);
-  if (e.date) bits.push(e.date);
-  return bits.length ? bits.join(' · ') : '无 EXIF 信息';
+  // 机身和预览尺寸排在最前：EXIF 行会省略号截断，这两项最不能丢
+  if (e && (e.make || e.model)) bits.push(cleanCamera(e.make, e.model));
+  if (p.raw && p.img) bits.push('预览 ' + p.img.naturalWidth + '×' + p.img.naturalHeight);
+  if (e){
+    if (e.focal) bits.push(e.focal);
+    if (e.fnum) bits.push(e.fnum);
+    if (e.shutter) bits.push(e.shutter);
+    if (e.iso) bits.push('ISO' + e.iso);
+    if (e.date) bits.push(e.date);
+  }
+  if (bits.length) return bits.join(' · ');
+  return p.raw ? 'RAW · 无 EXIF' : '无 EXIF 信息';
 }
 
 function drawThumb(photo, size){
@@ -1645,12 +2025,44 @@ function scheduleRender(){
 }
 
 /* ---------- 导出 ---------- */
+
+/**
+ * 触发浏览器下载，返回 blob URL（由调用方负责 revoke）。
+ *
+ * 关键：a 必须挂进 DOM 再 click。游离节点上点 click() 在 Safari、部分内嵌
+ * webview、以及沙箱 iframe 里不会下载，而且不抛异常——表现就是「提示导出
+ * 成功，但哪儿都找不到文件」。挂进 DOM 是成本最低、覆盖面最广的修法。
+ */
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  return url;
+}
+
 function canvasToBytes(cv, format, quality){
-  return new Promise(res => {
-    cv.toBlob(blob => {
-      blob.arrayBuffer().then(b => res(new Uint8Array(b)));
-    }, format === 'png' ? 'image/png' : 'image/jpeg', quality);
+  return new Promise((resolve, reject) => {
+    try{
+      cv.toBlob(blob => {
+        if (!blob){ reject(new Error('画布过大，浏览器无法编码')); return; }
+        blob.arrayBuffer().then(b => resolve(new Uint8Array(b))).catch(reject);
+      }, format === 'png' ? 'image/png' : 'image/jpeg', quality);
+    }catch(e){ reject(e); }
   });
+}
+
+/** 按钮文字按当前勾选数复原，异常中断也不会卡在「处理中」 */
+function refreshExportBtn(){
+  const btn = $('exportBtn');
+  const n = state.photos.filter(p => p.include).length;
+  btn.disabled = n === 0;
+  btn.textContent = n ? '导出 ' + n + ' 张' : '导出全部';
 }
 
 async function exportAll(){
@@ -1660,36 +2072,202 @@ async function exportAll(){
   btn.disabled = true;
   const s = state.settings;
   const entries = [];
+  const failed = [];
   const used = new Map();
   const ext = s.format === 'png' ? 'png' : 'jpg';
 
-  for (let i = 0; i < list.length; i++){
-    btn.textContent = '处理中 ' + (i + 1) + '/' + list.length;
-    await new Promise(r => setTimeout(r, 0));
-    const srcLong = Math.max(list[i].img.naturalWidth || 0, list[i].img.naturalHeight || 0);
+  try{
+    for (let i = 0; i < list.length; i++){
+      btn.textContent = '处理中 ' + (i + 1) + '/' + list.length;
+      await new Promise(r => setTimeout(r, 0));          // 让出主线程，按钮文字能刷新
+      let cv = null;
+      try{
+        const srcLong = Math.max(list[i].img.naturalWidth || 0, list[i].img.naturalHeight || 0);
+        const edge = s.outSize > 0 ? s.outSize : Math.min(srcLong || 2000, 12000);
+        cv = renderFrame(list[i], s, edge);
+        const data = await canvasToBytes(cv, s.format, s.jpgQuality === undefined ? 0.95 : s.jpgQuality);
+        const base = list[i].name.replace(/\.[^.]+$/, '');
+        const k = base + '.' + ext;
+        const n = (used.get(k) || 0) + 1;
+        used.set(k, n);
+        const fname = (n === 1 ? base + '_framed.' : base + '_framed_' + n + '.') + ext;
+        entries.push({name: fname, data});
+      }catch(err){
+        failed.push(list[i].name);
+      }finally{
+        // 及时释放大画布，几十张原始尺寸导出时能显著降低内存峰值
+        if (cv){ cv.width = 0; cv.height = 0; }
+      }
+    }
+
+    if (!entries.length){
+      toast('导出失败：' + (failed[0] || '没有可处理的照片'));
+      return;
+    }
+
+    const blob = buildZip(entries);
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const fname = '光影相框_' + stamp + '.zip';
+    // URL 交给 toast 持有，提示消失时才释放，中途可以手动点
+    const url = downloadBlob(blob, fname);
+
+    toast('已导出 ' + entries.length + ' 张 · ' + (blob.size / 1048576).toFixed(1) + ' MB'
+          + (failed.length ? ' · ' + failed.length + ' 张失败' : ''),
+          { action: { url, filename: fname } });
+  }catch(err){
+    toast('导出中断：' + ((err && err.message) || '未知错误'));
+  }finally{
+    refreshExportBtn();
+  }
+}
+
+/* ---------- 大图预览 ---------- */
+let lbIndex = -1;
+
+function lbList(){ return state.photos.filter(p => p.ready); }
+
+function openLightbox(photo){
+  const i = lbList().findIndex(p => p.id === photo.id);
+  if (i < 0) return;
+  lbIndex = i;
+  drawLightbox();
+  $('lb').classList.add('on');
+}
+
+function drawLightbox(){
+  const list = lbList();
+  if (!list.length){ closeLightbox(); return; }
+  lbIndex = (lbIndex + list.length) % list.length;
+  const cv = renderFrame(list[lbIndex], state.settings, 1400);
+  const lb = $('lbCanvas');
+  lb.width = cv.width; lb.height = cv.height;
+  lb.getContext('2d').drawImage(cv, 0, 0);
+  $('lbInfo').textContent = (lbIndex + 1) + ' / ' + list.length;
+  $('lbPrev').disabled = $('lbNext').disabled = list.length < 2;
+}
+
+function stepLightbox(d){
+  if (lbIndex < 0) return;
+  lbIndex += d;
+  drawLightbox();
+}
+
+function closeLightbox(){
+  lbIndex = -1;
+  $('lb').classList.remove('on');
+}
+
+function deleteInLightbox(){
+  const p = lbList()[lbIndex];
+  if (!p) return;
+  removePhoto(p.id);
+  if (!lbList().length) closeLightbox();
+  else drawLightbox();
+}
+
+/** 只导出当前大图这一张，不进 zip */
+async function exportOne(photo){
+  const btn = $('lbExport');
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = '处理中…';
+  let cv = null;
+  try{
+    const s = state.settings;
+    const srcLong = Math.max(photo.img.naturalWidth || 0, photo.img.naturalHeight || 0);
     const edge = s.outSize > 0 ? s.outSize : Math.min(srcLong || 2000, 12000);
-    const cv = renderFrame(list[i], s, edge);
+    cv = renderFrame(photo, s, edge);
     const data = await canvasToBytes(cv, s.format, s.jpgQuality === undefined ? 0.95 : s.jpgQuality);
-    const base = list[i].name.replace(/\.[^.]+$/, '');
-    const k = base + '.' + ext;
-    const n = (used.get(k) || 0) + 1;
-    used.set(k, n);
-    const fname = (n === 1 ? base + '_framed.' : base + '_framed_' + n + '.') + ext;
-    entries.push({name: fname, data});
+    const ext = s.format === 'png' ? 'png' : 'jpg';
+    const name = photo.name.replace(/\.[^.]+$/, '') + '_framed.' + ext;
+    const blob = new Blob([data], {type: s.format === 'png' ? 'image/png' : 'image/jpeg'});
+    const url = downloadBlob(blob, name);
+    toast('已导出 ' + name + ' · ' + (blob.size / 1048576).toFixed(1) + ' MB',
+          { action: { url, filename: name } });
+  }catch(err){
+    toast('导出失败：' + ((err && err.message) || '未知错误'));
+  }finally{
+    if (cv){ cv.width = 0; cv.height = 0; }
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+
+/* ---------- 参数导入 / 导出 ---------- */
+const SETTING_RANGES = {
+  padding:[0.01,0.14], fontScale:[0.01,0.04], radius:[0,0.03],
+  blurAmount:[0.01,0.24], blurScale:[1,1.8], blurDim:[0.3,1.15], blurSat:[0.5,2],
+  subjectScale:[0.55,0.96], feather:[0,0.25], edgeShadow:[0,1]
+};
+const SETTING_ENUMS = {
+  template:Object.keys(TEMPLATES),
+  ratio:['orig','1','0.8','1.5','1.7778','0.75'],
+  format:['jpg','png'],
+  grainMode:['off','subject'],
+  outSize:[0,1080,1600,2000,3000,4000],
+  jpgQuality:[0.9,0.95,0.99]
+};
+
+/** 只接受已知 key、类型一致、枚举合法、数值在范围内的项 */
+function sanitizeSettings(obj){
+  // 旧的「全图 / 主体以外」颗粒模式已移除，旧预设和旧 JSON 统一收敛到主体颗粒
+  if (obj.grainMode === 'all' || obj.grainMode === 'edge') obj.grainMode = 'subject';
+  if (obj.grainMode === undefined && typeof obj.grain === 'boolean'){
+    obj.grainMode = obj.grain ? 'subject' : 'off';
   }
 
-  const blob = buildZip(entries);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  a.href = url;
-  a.download = '光影相框_' + stamp + '.zip';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  const s = state.settings;
+  let n = 0;
+  for (const k of Object.keys(s)){
+    if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+    const v = obj[k];
+    if (typeof v !== typeof s[k]) continue;
+    if (SETTING_ENUMS[k] && SETTING_ENUMS[k].indexOf(v) < 0) continue;
+    if (SETTING_RANGES[k]){
+      if (typeof v !== 'number' || !isFinite(v)) continue;
+      s[k] = Math.min(SETTING_RANGES[k][1], Math.max(SETTING_RANGES[k][0], v));
+    } else {
+      s[k] = v;
+    }
+    n++;
+  }
+  return n;
+}
 
-  btn.disabled = false;
-  btn.textContent = '导出 ' + list.length + ' 张';
-  toast('已导出 ' + list.length + ' 张 · ' + (blob.size / 1048576).toFixed(1) + ' MB');
+function applySettings(obj){
+  const n = sanitizeSettings(obj);
+  syncUI();
+  buildChips();
+  scheduleRender();
+  return n;
+}
+
+function exportSettings(){
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const blob = new Blob([JSON.stringify(state.settings, null, 2)], {type: 'application/json'});
+  const fname = '光影相框_样式_' + stamp + '.json';
+  const url = downloadBlob(blob, fname);
+  toast('参数已导出', { action: { url, filename: fname } });
+}
+
+function importSettings(file){
+  const fr = new FileReader();
+  fr.onload = () => {
+    let obj;
+    try{ obj = JSON.parse(fr.result); }
+    catch(e){ toast('导入失败：不是有效的 JSON'); return; }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)){ toast('导入失败：文件内容不对'); return; }
+    const n = applySettings(obj);
+    toast(n ? '已导入 ' + n + ' 项参数' : '导入失败：没有可识别的参数');
+  };
+  fr.onerror = () => toast('读取文件失败');
+  fr.readAsText(file);
+}
+
+/* ---------- 侧栏抽屉（平板 / 手机） ---------- */
+function setPanel(open){
+  document.body.classList.toggle('panel-open', !!open);
+}
+function panelOpen(){
+  return document.body.classList.contains('panel-open');
 }
 
 /* ---------- 交互绑定 ---------- */
@@ -1697,16 +2275,33 @@ function bind(){
   $('addBtn').onclick = () => $('file').click();
   $('file').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
 
-  const main = $('main');
-  ['dragenter', 'dragover'].forEach(t => main.addEventListener(t, e => {
-    e.preventDefault(); document.body.classList.add('dragover');
-  }));
-  ['dragleave', 'drop'].forEach(t => main.addEventListener(t, e => {
-    e.preventDefault(); document.body.classList.remove('dragover');
-  }));
-  main.addEventListener('drop', e => { if (e.dataTransfer.files) addFiles(e.dataTransfer.files); });
-  window.addEventListener('dragover', e => e.preventDefault());
-  window.addEventListener('drop', e => e.preventDefault());
+  // 全窗口接收拖放：拖到左侧参数栏、顶部栏也不会丢文件
+  let dragDepth = 0;
+  const hasFiles = e => !!(e.dataTransfer && e.dataTransfer.types && [...e.dataTransfer.types].includes('Files'));
+  window.addEventListener('dragenter', e => {
+    e.preventDefault();
+    if (!hasFiles(e)) return;
+    dragDepth++;
+    document.body.classList.add('dragover');
+  });
+  window.addEventListener('dragover', e => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = hasFiles(e) ? 'copy' : 'none';
+  });
+  window.addEventListener('dragleave', e => {
+    e.preventDefault();
+    if (!dragDepth) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) document.body.classList.remove('dragover');
+  });
+  window.addEventListener('drop', e => {
+    e.preventDefault();
+    dragDepth = 0;
+    document.body.classList.remove('dragover');
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length){
+      addFiles(e.dataTransfer.files);
+    }
+  });
 
   $('ratio').onchange = e => { state.settings.ratio = e.target.value; scheduleRender(); };
   $('outSize').onchange = e => { state.settings.outSize = +e.target.value; };
@@ -1766,7 +2361,7 @@ function bind(){
 
 
   $('shadow').onchange = e => { state.settings.shadow = e.target.checked; scheduleRender(); };
-  $('grainMode').onchange = e => { state.settings.grainMode = e.target.value; scheduleRender(); };
+  $('grain').onchange = e => { state.settings.grainMode = e.target.checked ? 'subject' : 'off'; scheduleRender(); };
 
   const colorBind = (id, txt, key) => {
     $(id).oninput = e => {
@@ -1819,10 +2414,22 @@ function bind(){
   });
 
   $('exportBtn').onclick = exportAll;
+  $('clearBtn').onclick = clearAll;
+  $('clearBtn2').onclick = clearAll;
+  $('panelBtn').onclick = () => setPanel(!panelOpen());
+  $('panelClose').onclick = () => setPanel(false);
+  $('scrim').onclick = () => setPanel(false);
   $('savePreset').onclick = savePreset;
   $('resetPreset').onclick = () => {
     localStorage.removeItem(PRESET_KEY);
     location.reload();
+  };
+  $('exportPreset').onclick = exportSettings;
+  $('importPreset').onclick = () => $('presetFile').click();
+  $('presetFile').onchange = e => {
+    const f = e.target.files && e.target.files[0];
+    if (f) importSettings(f);
+    e.target.value = '';
   };
 
   // 大图预览
@@ -1831,23 +2438,99 @@ function bind(){
     if (!thumb) return;
     const id = +thumb.closest('.card').dataset.id;
     const p = state.photos.find(x => x.id === id);
-    if (!p || !p.ready) return;
-    const cv = renderFrame(p, state.settings, 1400);
-    const lb = $('lbCanvas');
-    lb.width = cv.width; lb.height = cv.height;
-    lb.getContext('2d').drawImage(cv, 0, 0);
-    $('lb').classList.add('on');
+    if (p) openLightbox(p);
   });
-  $('lb').onclick = e => { if (e.target.id === 'lb' || e.target.id === 'lbClose') $('lb').classList.remove('on'); };
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') $('lb').classList.remove('on'); });
+  $('lb').onclick = e => { if (e.target.id === 'lb' || e.target.id === 'lbClose') closeLightbox(); };
+  $('lbPrev').onclick = () => stepLightbox(-1);
+  $('lbNext').onclick = () => stepLightbox(1);
+  $('lbDel').onclick = deleteInLightbox;
+  $('lbExport').onclick = () => {
+    const p = lbList()[lbIndex];
+    if (p) exportOne(p);
+  };
+
+  document.addEventListener('keydown', onKeyDown);
+}
+
+function onKeyDown(e){
+  const el = e.target;
+  const tag = (el.tagName || '').toLowerCase();
+  const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable;
+  const mod = e.metaKey || e.ctrlKey;
+  const key = String(e.key || '').toLowerCase();
+
+  if (e.key === 'Escape'){
+    if (lbIndex >= 0){ e.preventDefault(); closeLightbox(); }
+    else if (panelOpen()){ e.preventDefault(); setPanel(false); }
+    return;
+  }
+  if (mod && key === 'o'){ e.preventDefault(); $('file').click(); return; }
+  if (mod && key === 'e'){ e.preventDefault(); if (!$('exportBtn').disabled) exportAll(); return; }
+  if (mod && key === 's'){ e.preventDefault(); savePreset(); return; }
+  if (typing || mod || e.altKey) return;
+
+  // 大图打开时：翻页 / 删除
+  if (lbIndex >= 0){
+    if (e.key === 'ArrowLeft'){ e.preventDefault(); stepLightbox(-1); }
+    else if (e.key === 'ArrowRight'){ e.preventDefault(); stepLightbox(1); }
+    else if (e.key === 'Delete' || e.key === 'Backspace'){ e.preventDefault(); deleteInLightbox(); }
+    return;
+  }
+
+  const keys = Object.keys(TEMPLATES);
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight'){
+    e.preventDefault();
+    const i = keys.indexOf(state.settings.template);
+    const d = e.key === 'ArrowRight' ? 1 : -1;
+    applyTemplate(keys[(i + d + keys.length) % keys.length]);
+    return;
+  }
+  if (/^[1-8]$/.test(e.key)){
+    const k = keys[+e.key - 1];
+    if (k){ e.preventDefault(); applyTemplate(k); }
+  }
 }
 
 let toastTimer = null;
-function toast(msg){
+let toastUrl = null;
+
+/**
+ * 显示提示。opts.action = {url, filename} 时会在提示里挂一个真实可点的下载链接。
+ *
+ * 为什么要留这个链接：程序化 a.click() 被浏览器拦掉时不会抛异常，只会静默失败，
+ * 用户看到「已导出」却找不到文件。挂一个能点的兜底，任何环境下都有退路。
+ */
+function toast(msg, opts){
   const t = $('toast');
-  t.textContent = msg; t.classList.add('on');
+  const act = opts && opts.action;
+
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('on'), 2400);
+  if (toastUrl){ URL.revokeObjectURL(toastUrl); toastUrl = null; }
+
+  t.textContent = msg;
+  t.classList.remove('has-act');
+
+  if (act && act.url){
+    toastUrl = act.url;
+    const a = document.createElement('a');
+    a.className = 'toast-act';
+    a.href = act.url;
+    a.download = act.filename || '';
+    a.textContent = '手动保存';
+    t.appendChild(document.createTextNode(' '));
+    t.appendChild(a);
+    t.classList.add('has-act');
+  }
+
+  t.classList.add('on');
+  toastTimer = setTimeout(() => {
+    t.classList.remove('on');
+    t.classList.remove('has-act');
+    // 等淡出动画走完再释放，否则用户正好在点会失效
+    setTimeout(() => {
+      if (toastUrl){ URL.revokeObjectURL(toastUrl); toastUrl = null; }
+    }, 320);
+  }, act ? 12000 : 2400);
 }
 
 /* ---------- 预设 ---------- */
@@ -1863,13 +2546,7 @@ function loadPreset(){
     const raw = localStorage.getItem(PRESET_KEY);
     if (!raw) return;
     const obj = JSON.parse(raw);
-    Object.keys(state.settings).forEach(k => {
-      if (obj[k] !== undefined) state.settings[k] = obj[k];
-    });
-    // 兼容旧预设里的 grain 布尔值
-    if (obj.grainMode === undefined && obj.grain !== undefined){
-      state.settings.grainMode = obj.grain ? 'all' : 'off';
-    }
+    sanitizeSettings(obj);
   }catch(e){}
 }
 
